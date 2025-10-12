@@ -1,0 +1,160 @@
+{
+  "header": {
+    "logo": "Analisador de Ações IA",
+    "search": "Buscar ações...",
+    "notifications": "Notificações",
+    "profile": "Perfil"
+  },
+  "sidebar": {
+    "dashboard": "Painel",
+    "topStocks": "Melhores Ações",
+    "etfs": "ETFs",
+    "portfolio": "Portfólio",
+    "watchlist": "Lista de Observação",
+    "tradeIdeas": "Ideias de Trading",
+    "analytics": "Análises",
+    "settings": "Configurações"
+  },
+  "search": {
+    "placeholder": "Pesquisar ações..."
+  },
+  "dashboard": {
+    "title": "Visão Geral do Mercado",
+    "totalStocks": "Total de Ações",
+    "avgAiScore": "Pontuação IA Média",
+    "marketCap": "Capitalização de Mercado",
+    "performance": "Performance",
+    "topStocks": "Melhores Ações por Pontuação IA",
+    "aiScoreDistribution": "Distribuição da Pontuação IA",
+    "howAiWorks": "Como Nossa IA Funciona",
+    "aiDescription": "Nossa IA analisa mais de 200 métricas financeiras, sentimento do mercado e indicadores técnicos para fornecer insights de investimento acionáveis.",
+    "viewAll": "Ver Tudo"
+  },
+  "topStocks": {
+    "title": "Melhores Ações",
+    "filters": "Filtros",
+    "sortBy": "Ordenar por",
+    "aiScore": "Pontuação IA",
+    "performance": "Desempenho",
+    "marketCap": "Capitalização",
+    "volume": "Volume",
+    "loadMore": "Carregar Mais",
+    "showingStocks": "Mostrando {{count}} ações",
+    "showingFilteredStocks": "Mostrando {{count}} de {{total}} ações"
+  },
+  "stockCard": {
+    "volume": "Volume",
+    "marketCap": "Cap. de Mercado",
+    "peRatio": "Relação P/L",
+    "aiRecommendation": {
+      "strongBuy": "Compra Forte",
+      "buy": "Comprar",
+      "hold": "Manter",
+      "sell": "Vender",
+      "strongSell": "Venda Forte"
+    }
+  },
+  "sectorAnalysis": {
+    "title": "Análise Setorial",
+    "sectorPerformance": "Performance por Setor",
+    "marketCapDistribution": "Distribuição da Capitalização de Mercado",
+    "aiScoreDistribution": "Distribuição da Pontuação IA por Setor",
+    "globalMarketComparison": "Comparação de Mercados Globais",
+    "radarAnalysis": "Análise Multidimensional",
+    "sectors": {
+      "technology": "Tecnologia",
+      "healthcare": "Saúde",
+      "finance": "Finanças",
+      "energy": "Energia",
+      "consumer": "Consumo",
+      "industrials": "Industriais",
+      "materials": "Materiais",
+      "utilities": "Serviços Públicos",
+      "realestate": "Imóveis",
+      "telecom": "Telecomunicações"
+    }
+  },
+  "portfolio": {
+    "title": "Acompanhamento de Portfólio",
+    "overview": "Visão Geral",
+    "totalValue": "Valor Total",
+    "totalReturn": "Retorno Total",
+    "dayChange": "Variação do Dia",
+    "performance": "Performance do Portfólio",
+    "sectorAllocation": "Alocação por Setor",
+    "holdings": "Posições",
+    "monthlyReturns": "Retornos Mensais",
+    "riskMetrics": "Métricas de Risco",
+    "sharpeRatio": "Índice de Sharpe",
+    "volatility": "Volatilidade",
+    "maxDrawdown": "Perda Máxima",
+    "beta": "Beta",
+    "symbol": "Símbolo",
+    "shares": "Ações",
+    "avgCost": "Custo Médio",
+    "currentPrice": "Preço Atual",
+    "totalValue": "Valor Total",
+    "gainLoss": "Ganho/Perda"
+  },
+  "aiAnalysis": {
+    "title": "Análise IA",
+    "aiProbability": "Probabilidade IA",
+    "riskLevel": "Nível de Risco",
+    "targetPrice": "Preço Alvo",
+    "momentum": "Momentum",
+    "aiScoreBreakdown": "Detalhamento da Pontuação IA",
+    "riskFactors": "Fatores de Risco",
+    "fundamentalMetrics": "Métricas Fundamentais",
+    "recommendation": "Recomendação IA",
+    "technical": "Técnico",
+    "fundamental": "Fundamental",
+    "sentiment": "Sentimento",
+    "marketRisk": "Risco de Mercado",
+    "liquidityRisk": "Risco de Liquidez",
+    "volatilityRisk": "Risco de Volatilidade",
+    "concentrationRisk": "Risco de Concentração",
+    "revenue": "Receita",
+    "profitMargin": "Margem de Lucro",
+    "debtToEquity": "Dívida/Patrimônio",
+    "roe": "ROE",
+    "recommendationText": {
+      "strongBuy": "Forte recomendação de compra baseada em análise IA abrangente",
+      "buy": "Recomendação de compra com perspectivas positivas",
+      "hold": "Manter posição atual, mercado neutro",
+      "sell": "Considerar venda, sinais de fraqueza",
+      "strongSell": "Forte recomendação de venda, alto risco"
+    }
+  },
+  "filters": {
+    "title": "Filtros Avançados",
+    "search": "Buscar por símbolo ou nome",
+    "aiScoreRange": "Faixa de Pontuação IA",
+    "performanceRange": "Faixa de Performance",
+    "marketCapRange": "Faixa de Capitalização de Mercado",
+    "volumeRange": "Faixa de Volume",
+    "peRatioRange": "Faixa de Relação P/L",
+    "sector": "Setor",
+    "aiRecommendation": "Recomendação IA",
+    "sortBy": "Ordenar por",
+    "sortOrder": "Ordem",
+    "ascending": "Crescente",
+    "descending": "Decrescente",
+    "clearFilters": "Limpar Filtros",
+    "applyFilters": "Aplicar Filtros",
+    "allSectors": "Todos os Setores",
+    "allRecommendations": "Todas as Recomendações"
+  },
+  "common": {
+    "loading": "Carregando...",
+    "error": "Erro",
+    "retry": "Tentar Novamente",
+    "close": "Fechar",
+    "save": "Salvar",
+    "cancel": "Cancelar",
+    "language": "Idioma",
+    "performance": "Performance",
+    "aiScore": "Pontuação IA",
+    "volume": "Volume",
+    "marketCap": "Capitalização de Mercado"
+  }
+}
