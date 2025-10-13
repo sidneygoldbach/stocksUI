@@ -516,48 +516,233 @@ async function main() {
     }
     logInfo('Final tickers after nasdaqLight pad:', finalTickers.length);
   }
-  const header = 'Company Name,Ticker,Financial Statements Analysis,Valuation Metrics,Growth Potential & Competitive Positioning,Risk Analysis,Recent News & Catalysts,Investment Outlook & Conclusion,Warren Buffett Analysis,Technical Analysis,Sentiment Analysis,FCF Yield,ROIC,Interest Coverage,Composite_ST_LR,Composite_ST,Composite_LT_LR,Composite_LT\n';
-  let csv = header;
+  // Configurável: quantos tickers aparecem nas listas Top N no final do CSV
+  const topRankCount = getArgNum('--top-rank-count', 10);
+  const groupDefs = [
+    { name: 'Financials', key: 'financialsScore', subs: [
+      { title: 'Gross Margins (norm)', expl: 'Normalized [0..1], higher better; gross margins; good ~20%-60%' },
+      { title: 'Operating Margins (norm)', expl: 'Normalized [0..1], higher better; operating margins; good ~5%-30%' },
+      { title: 'Net Margins (norm)', expl: 'Normalized [0..1], higher better; net margins; good ~2%-25%' },
+      { title: 'Revenue Growth (norm)', expl: 'Normalized [0..1] of revenue growth ×4; higher better' },
+      { title: 'Earnings Growth (norm)', expl: 'Normalized [0..1] of earnings growth ×4; higher better' },
+      { title: 'FCF Margin (norm)', expl: 'Normalized [0..1] of free cash flow margin ×4; higher better' },
+      { title: 'Debt/Equity (lower-better norm)', expl: 'Normalized [0..1], lower D/E is better; range ~0.15–2.0' },
+    ] },
+    { name: 'Valuation', key: 'valuationScore', subs: [
+      { title: 'Trailing P/E (lower-better norm)', expl: 'Normalized [0..1], lower better; range ~6–35' },
+      { title: 'Forward P/E (lower-better norm)', expl: 'Normalized [0..1], lower better; range ~6–35' },
+      { title: 'P/B (lower-better norm)', expl: 'Normalized [0..1], lower better; range ~0.7–6' },
+      { title: 'EV/EBITDA (lower-better norm)', expl: 'Normalized [0..1], lower better; range ~4–20' },
+      { title: 'Dividend Yield (norm)', expl: 'Normalized [0..1] of dividend yield ×4; higher better' },
+    ] },
+    { name: 'Growth', key: 'growthScore', subs: [
+      { title: 'Earnings Growth (norm)', expl: 'Normalized [0..1] of earnings growth ×4; higher better' },
+      { title: 'Revenue Growth (norm)', expl: 'Normalized [0..1] of revenue growth ×4; higher better' },
+      { title: 'Return on Equity (norm)', expl: 'Normalized [0..1], higher better; range ~5%–25%' },
+    ] },
+    { name: 'Risk', key: 'riskScore', subs: [
+      { title: 'Debt/Equity (lower-better norm)', expl: 'Normalized [0..1], lower D/E is better; range ~0.15–2.0' },
+      { title: 'Current Ratio (norm)', expl: 'Normalized [0..1], higher better; range ~1.2–3.0' },
+      { title: 'Quick Ratio (norm)', expl: 'Normalized [0..1], higher better; range ~1.0–2.5' },
+      { title: 'Beta (lower-better norm)', expl: 'Normalized [0..1], lower beta is better; range ~0.8–2.0' },
+    ] },
+    { name: 'News', key: 'newsScore', subs: [
+      { title: 'Target Premium (norm)', expl: 'Normalized [0..1] of (targetMeanPrice - price)/price; higher better; range ~5%–30%' },
+    ] },
+    { name: 'Outlook', key: 'outlookScore', subs: [
+      { title: 'P/E (lower-better norm)', expl: 'Normalized [0..1], lower better; range ~6–35; uses Fwd/Trailing' },
+      { title: 'P/B (lower-better norm)', expl: 'Normalized [0..1], lower better; range ~0.7–6' },
+      { title: 'Dividend Yield (norm)', expl: 'Normalized [0..1] of dividend yield ×4; higher better' },
+      { title: 'FCF Margin (norm)', expl: 'Normalized [0..1] of free cash flow margin ×4; higher better' },
+      { title: 'EPS Growth (norm)', expl: 'Normalized [0..1] of earnings growth ×4; higher better' },
+      { title: 'Debt/Equity (lower-better norm)', expl: 'Normalized [0..1], lower D/E is better; range ~0.15–2.0' },
+    ] },
+    { name: 'Buffett', key: 'buffettScore', subs: [
+      { title: 'Dividend Yield (norm)', expl: 'Normalized [0..1] of dividend yield ×4; higher better' },
+      { title: 'Debt/Equity (lower-better norm)', expl: 'Normalized [0..1], lower D/E is better; range ~0.15–2.0' },
+      { title: 'Return on Equity (norm)', expl: 'Normalized [0..1], higher better; range ~10%–30%' },
+      { title: 'FCF Margin (norm)', expl: 'Normalized [0..1] of free cash flow margin ×4; higher better' },
+    ] },
+    { name: 'Technical', key: 'technicalScore', subs: [
+      { title: 'Change % (norm)', expl: 'Normalized [0..1] of recent change %; higher better; range ~-2%–+5%' },
+    ] },
+    { name: 'Sentiment', key: 'sentimentScore', subs: [
+      { title: 'Recommendation Mean (lower-better norm)', expl: 'Normalized [0..1], lower better; range ~1.0–4.0' },
+    ] },
+  ];
+  const extrasDefs = { name: 'Extras', subs: [
+    { title: 'FCF Yield', expl: 'Free cash flow divided by market cap; raw ratio' },
+    { title: 'ROIC/ROE', expl: 'Return on assets or equity; raw value' },
+    { title: 'Interest Coverage', expl: 'Ability to cover interest expenses; raw value' },
+  ]};
+  const compositesDefs = { name: 'Composites', subs: [
+    { title: 'Composite_ST_LR', expl: 'Short-term (low risk) weighted composite' },
+    { title: 'Composite_ST', expl: 'Short-term momentum/valuation composite' },
+    { title: 'Composite_LT_LR', expl: 'Long-term (low risk) weighted composite' },
+    { title: 'Composite_LT', expl: 'Long-term growth/quality composite' },
+  ]};
+
+  const headerRow1 = ['Company Name', 'Ticker'];
+  const headerRow2 = ['', ''];
+  const headerRow3 = ['', ''];
+  for (const g of groupDefs) {
+    headerRow1.push(g.name);
+    for (let i = 0; i < g.subs.length; i++) headerRow1.push('');
+    headerRow1.push(''); // spacer
+    headerRow2.push('Score');
+    for (const sub of g.subs) headerRow2.push(sub.title);
+    headerRow2.push('');
+    headerRow3.push('Score agregado [0..1] do grupo');
+    for (const sub of g.subs) headerRow3.push(sub.expl);
+    headerRow3.push('');
+  }
+  // Append Extras block
+  headerRow1.push(extrasDefs.name, '', '', '');
+  headerRow2.push(...extrasDefs.subs.map(s=>s.title));
+  headerRow3.push(...extrasDefs.subs.map(s=>s.expl));
+  // Append Composites block
+  headerRow1.push(compositesDefs.name, '', '', '', '');
+  headerRow2.push(...compositesDefs.subs.map(s=>s.title));
+  headerRow3.push(...compositesDefs.subs.map(s=>s.expl));
+
+  let csv = headerRow1.join(',') + '\n' + headerRow2.join(',') + '\n' + headerRow3.join(',') + '\n';
+
   for (const t of finalTickers) {
     const r = results.find(x => x.ticker === t);
-    const a = buildAnalysis(t, r?.q);
     const name = r?.q?.price?.longName || r?.q?.price?.shortName || t;
-    const priceObj = r?.q?.price || {}; const fd = r?.q?.financialData || {}; const ks = r?.q?.defaultKeyStatistics || {};
+    const priceObj = r?.q?.price || {}; const fd = r?.q?.financialData || {}; const sd = r?.q?.summaryDetail || {}; const ks = r?.q?.defaultKeyStatistics || {};
     const marketCap = priceObj.marketCap ? Number(priceObj.marketCap) : (ks.marketCap ? Number(ks.marketCap) : null);
-    const fcfYield = (fd.freeCashflow && marketCap) ? Number(fd.freeCashflow) / marketCap : 'N/A';
-    const roic = (fd.returnOnAssets != null) ? fd.returnOnAssets : (fd.returnOnEquity ?? 'N/A');
-    const interestCoverage = (fd.interestCoverage != null) ? fd.interestCoverage : 'N/A';
-    const row = [name, t, a.financials, a.valuation, a.growth, a.risk, a.news, a.outlook, a.buffett, a.technical, a.sentiment,
-      fcfYield, roic, interestCoverage, r?.aspects?.comp_st_lr ?? '', r?.aspects?.comp_st ?? '', r?.aspects?.comp_lt_lr ?? '', r?.aspects?.comp_lt ?? '']
-      .map((v) => '"' + String(v ?? '').replace(/"/g,'""') + '"')
-      .join(',') + '\n';
-    csv += row;
+    const fcfMargin = (fd.freeCashflow && fd.totalRevenue) ? Number(fd.freeCashflow) / Number(fd.totalRevenue) : 0;
+    const fcfYield = (fd.freeCashflow && marketCap) ? Number(fd.freeCashflow) / marketCap : '';
+    const roic = (fd.returnOnAssets != null) ? fd.returnOnAssets : (fd.returnOnEquity ?? '');
+    const interestCoverage = (fd.interestCoverage != null) ? fd.interestCoverage : '';
+
+    const row = [name, t];
+    // Financials
+    row.push(r?.aspects?.financialsScore ?? '');
+    row.push(
+      clamp01(normHigherBetter(fd.grossMargins, 0.2, 0.6)),
+      clamp01(normHigherBetter(fd.operatingMargins, 0.05, 0.3)),
+      clamp01(normHigherBetter(fd.netMargins, 0.02, 0.25)),
+      clamp01((fd.revenueGrowth ?? 0) * 4),
+      clamp01((fd.earningsGrowth ?? 0) * 4),
+      clamp01(fcfMargin * 4),
+      normLowerBetter(fd.debtToEquity, 0.15, 2.0),
+      '' // spacer
+    );
+    // Valuation
+    row.push(r?.aspects?.valuationScore ?? '');
+    row.push(
+      normLowerBetter(ks.trailingPE, 6, 35),
+      normLowerBetter(ks.forwardPE, 6, 35),
+      normLowerBetter(ks.priceToBook, 0.7, 6),
+      normLowerBetter(ks.enterpriseToEbitda, 4, 20),
+      clamp01((sd.dividendYield ?? 0) * 4),
+      ''
+    );
+    // Growth
+    row.push(r?.aspects?.growthScore ?? '');
+    row.push(
+      clamp01((fd.earningsGrowth ?? 0) * 4),
+      clamp01((fd.revenueGrowth ?? 0) * 4),
+      normHigherBetter(fd.returnOnEquity, 0.05, 0.25),
+      ''
+    );
+    // Risk
+    row.push(r?.aspects?.riskScore ?? '');
+    row.push(
+      normLowerBetter(fd.debtToEquity, 0.15, 2.0),
+      normHigherBetter(fd.currentRatio, 1.2, 3.0),
+      normHigherBetter(fd.quickRatio, 1.0, 2.5),
+      normLowerBetter(sd.beta, 0.8, 2.0),
+      ''
+    );
+    // News
+    row.push(r?.aspects?.newsScore ?? '');
+    row.push(
+      normHigherBetter(fd.targetMeanPrice && priceObj.regularMarketPrice ? (Number(fd.targetMeanPrice) - Number(priceObj.regularMarketPrice)) / Number(priceObj.regularMarketPrice) : 0, 0.05, 0.30),
+      ''
+    );
+    // Outlook
+    row.push(r?.aspects?.outlookScore ?? '');
+    {
+      const pe = ks.forwardPE ?? ks.trailingPE;
+      const pb = ks.priceToBook;
+      const div = sd.dividendYield ?? 0;
+      const epsGrowth = fd.earningsGrowth ?? 0;
+      const d2e = fd.debtToEquity;
+      row.push(
+        normLowerBetter(pe, 6, 35),
+        normLowerBetter(pb, 0.7, 6),
+        clamp01(div * 4),
+        clamp01(fcfMargin * 4),
+        clamp01(epsGrowth * 4),
+        normLowerBetter(d2e, 0.15, 2.0),
+        ''
+      );
+    }
+    // Buffett
+    row.push(r?.aspects?.buffettScore ?? '');
+    row.push(
+      clamp01((sd.dividendYield ?? 0) * 4),
+      normLowerBetter(fd.debtToEquity, 0.15, 2.0),
+      normHigherBetter(fd.returnOnEquity, 0.10, 0.30),
+      clamp01(fcfMargin * 4),
+      ''
+    );
+    // Technical
+    row.push(r?.aspects?.technicalScore ?? '');
+    row.push(
+      normHigherBetter(priceObj.regularMarketChangePercent, -0.02, 0.05),
+      ''
+    );
+    // Sentiment
+    row.push(r?.aspects?.sentimentScore ?? '');
+    row.push(
+      normLowerBetter(fd.recommendationMean, 1.0, 4.0),
+      ''
+    );
+
+    // Extras
+    row.push(fcfYield, roic, interestCoverage);
+
+    // Composites
+    row.push(
+      r?.aspects?.comp_st_lr ?? '',
+      r?.aspects?.comp_st ?? '',
+      r?.aspects?.comp_lt_lr ?? '',
+      r?.aspects?.comp_lt ?? ''
+    );
+
+    csv += row.map((v) => '"' + String(v ?? '').replace(/"/g,'""') + '"').join(',') + '\n';
   }
+
   const labels = [
-    ['Top10_Financials','financialsScore'],
-    ['Top10_Valuation','valuationScore'],
-    ['Top10_Growth','growthScore'],
-    ['Top10_Risk','riskScore'],
-    ['Top10_News','newsScore'],
-    ['Top10_Outlook','outlookScore'],
-    ['Top10_Buffett','buffettScore'],
-    ['Top10_Technical','technicalScore'],
-    ['Top10_Sentiment','sentimentScore'],
-    ['Top10_Composite','score'],
-    ['Top10_Composite_ST_LR','comp_st_lr'],
-    ['Top10_Composite_ST','comp_st'],
-    ['Top10_Composite_LT_LR','comp_lt_lr'],
-    ['Top10_Composite_LT','comp_lt']
+    ['Top_Financials','financialsScore'],
+    ['Top_Valuation','valuationScore'],
+    ['Top_Growth','growthScore'],
+    ['Top_Risk','riskScore'],
+    ['Top_News','newsScore'],
+    ['Top_Outlook','outlookScore'],
+    ['Top_Buffett','buffettScore'],
+    ['Top_Technical','technicalScore'],
+    ['Top_Sentiment','sentimentScore'],
+    ['Top_Composite','score'],
+    ['Top_Composite_ST_LR','comp_st_lr'],
+    ['Top_Composite_ST','comp_st'],
+    ['Top_Composite_LT_LR','comp_lt_lr'],
+    ['Top_Composite_LT','comp_lt']
   ];
   for (const [label,key] of labels) {
     let arr;
     if (key === 'score') {
-      arr = results.filter(r => finalTickers.includes(r.ticker)).sort((a,b) => b.score - a.score).slice(0,10).map(r=>r.ticker);
+      arr = results.filter(r => finalTickers.includes(r.ticker)).sort((a,b) => b.score - a.score).slice(0, topRankCount).map(r=>r.ticker);
     } else {
-      arr = results.filter(r => finalTickers.includes(r.ticker)).sort((a,b) => (b.aspects[key]||0) - (a.aspects[key]||0)).slice(0,10).map(r=>r.ticker);
+      arr = results.filter(r => finalTickers.includes(r.ticker)).sort((a,b) => (b.aspects[key]||0) - (a.aspects[key]||0)).slice(0, topRankCount).map(r=>r.ticker);
     }
     csv += label + ',' + arr.join(',') + '\n';
   }
+
   const outPath = outCsvPath;
   logProgress('writing_csv', { filename: outPath, rows: finalTickers.length, elapsedMs: nowMs() - t0 });
   fs.writeFileSync(outPath, csv, 'utf8');

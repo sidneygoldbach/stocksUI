@@ -39,6 +39,8 @@ app.post('/api/run-analysis', (req, res) => {
     skipValidation = true,
     noValidationLogs = true,
     minPriceCutoff = 5.00,
+    // new: number of stocks to show per Top list
+    topRankCount = 10,
   } = req.body || {};
 
   const runId = makeRunId();
@@ -63,6 +65,8 @@ app.post('/api/run-analysis', (req, res) => {
     suppressSurvey ? '--suppress-survey' : '',
     skipValidation ? '--skip-validation' : '',
     noValidationLogs ? '--no-validation-logs' : '',
+    // new: pass top rank count to script
+    `--top-rank-count=${Number(topRankCount)}`,
   ].filter(Boolean);
 
   const proc = spawn('node', args, { cwd: process.cwd() });

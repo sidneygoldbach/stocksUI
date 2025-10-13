@@ -1,5 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState, useImperativeHandle, forwardRef } from 'react';
 import { Rocket, Settings, Gauge, Timer, FileText, RefreshCw, Play } from 'lucide-react';
+import { AgGridReact } from 'ag-grid-react';
+import 'ag-grid-community/styles/ag-grid.css';
+import 'ag-grid-community/styles/ag-theme-alpine.css';
+import Papa from 'papaparse';
 
 const defaultConfig = {
   strict: true,
@@ -17,6 +21,8 @@ const defaultConfig = {
   suppressSurvey: false,
   skipValidation: false,
   noValidationLogs: false,
+  // new: how many stocks to rank in each Top list at the bottom of CSV
+  topRankCount: 10,
 };
 
 function suggestCsv() {
@@ -56,6 +62,46 @@ const ControlPanel = (props, ref) => {
   const [progress, setProgress] = useState({});
   const [logs, setLogs] = useState([]);
   const logsRef = useRef(null);
+  // estado para resultado (AG Grid)
+  const [gridColumns, setGridColumns] = useState([]);
+  const [gridRows, setGridRows] = useState([]);
+  const [gridQuickFilter, setGridQuickFilter] = useState('');
+  const gridApiRef = useRef(null);
+  const gridColumnApiRef = useRef(null);
+
+  // Helpers para construir colunas com auto-size baseado em dados
+  const isNumeric = (val) => {
+    if (val === null || val === undefined) return false;
+    if (typeof val === 'number') return true;
+    const s = String(val).trim().replace(/%$/,'');
+    if (s === '') return false;
+    return !isNaN(Number(s));
+  };
+  const buildColumnDefs = (header2, dataRows) => {
+    const cols = header2.map((h, idx) => ({ headerName: String(h || ''), field: `c${idx}`, resizable: true }));
+    // detectar tipo de filtro e calcular largura por dados
+    const widths = new Array(cols.length).fill(80);
+    for (let i = 0; i < cols.length; i++) {
+      let maxLen = 4; // mínimo
+      let numericCount = 0;
+      let sampleCount = 0;
+      for (let r = 0; r < dataRows.length; r++) {
+        const cell = dataRows[r][i];
+        const str = cell == null ? '' : String(cell);
+        maxLen = Math.max(maxLen, str.length);
+        if (sampleCount < 50) { // limitar custo
+          if (isNumeric(cell)) numericCount++;
+          sampleCount++;
+        }
+      }
+      // largura estimada: caracteres * 9 + padding
+      widths[i] = Math.min(600, Math.max(60, Math.round(maxLen * 9 + 28)));
+      const isMostlyNumeric = numericCount >= Math.floor(Math.min(sampleCount, 50) * 0.7);
+      cols[i].filter = isMostlyNumeric ? 'agNumberColumnFilter' : 'agTextColumnFilter';
+      cols[i].width = widths[i];
+    }
+    return cols;
+  };
 
   useEffect(() => {
     localStorage.setItem('analysis_config', JSON.stringify(config));
@@ -96,6 +142,8 @@ const ControlPanel = (props, ref) => {
         skipValidation: !!config.skipValidation,
         noValidationLogs: !!config.noValidationLogs,
         manualTickers: (config.manualTickers || []).filter(Boolean).slice(0,50),
+        // new param: top rank count
+        topRankCount: Number(config.topRankCount),
       })
     });
     const data = await resp.json();
@@ -152,6 +200,10 @@ const ControlPanel = (props, ref) => {
           <TabButton active={activeTab==='rede'} onClick={()=>setActiveTab('rede')} icon={Timer} label="Rede & Backoff" />
           <TabButton active={activeTab==='avancado'} onClick={()=>setActiveTab('avancado')} icon={Settings} label="Avançado" />
           <TabButton active={activeTab==='manual'} onClick={()=>setActiveTab('manual')} icon={FileText} label="Manual" />
+          {/* novo: aba de progresso no final */}
+          <TabButton active={activeTab==='progresso'} onClick={()=>setActiveTab('progresso')} icon={RefreshCw} label="Progresso" />
+          {/* nova aba: resultado */}
+          <TabButton active={activeTab==='resultado'} onClick={()=>setActiveTab('resultado')} icon={Play} label="Resultado" />
         </div>
       </div>
 
@@ -189,6 +241,15 @@ const ControlPanel = (props, ref) => {
               />
               <p className="text-gray-600 text-xs mt-1">Valor de corte para excluir penny stocks (atual: {typeof config.minPriceCutoff === 'number' ? config.minPriceCutoff.toFixed(2) : '5.00'}). Aceita centavos.</p>
             </div>
+            {/* new: top rank count input */}
+            <div className="text-sm md:col-span-3">
+              <label className="block font-medium mb-1">Número de stocks rankeados por coluna (Top N)</label>
+              <input type="number" min="1" value={config.topRankCount} onChange={(e)=>{
+                const n = Math.max(1, Number(e.target.value) || 1);
+                setConfig({ ...config, topRankCount: n });
+              }} className="w-40 p-2 rounded-md border" />
+              <p className="text-gray-600 text-xs mt-1">Controla quantos tickers aparecem nas listas "Top_..." ao final do CSV (atual: {config.topRankCount}).</p>
+            </div>
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={config.strict} onChange={(e)=>setConfig({...config, strict: e.target.checked})} />
               <span>Modo Estrito</span>
@@ -211,23 +272,23 @@ const ControlPanel = (props, ref) => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             <div>
               <label className="block font-medium mb-1">Jitter Mínimo (ms)</label>
-              <input type="number" value={config.jitterMin} onChange={(e)=>setConfig({...config, jitterMin: e.target.value})} className="w-full p-2 rounded-md border" />
+              <input type="number" value={config.jitterMin} onChange={(e)=>setConfig({...config, jitterMin: e.target.value})} className="w-40 p-2 rounded-md border" />
             </div>
             <div>
               <label className="block font-medium mb-1">Jitter Máximo (ms)</label>
-              <input type="number" value={config.jitterMax} onChange={(e)=>setConfig({...config, jitterMax: e.target.value})} className="w-full p-2 rounded-md border" />
+              <input type="number" value={config.jitterMax} onChange={(e)=>setConfig({...config, jitterMax: e.target.value})} className="w-40 p-2 rounded-md border" />
             </div>
             <div>
               <label className="block font-medium mb-1">Backoff Máximo (ms)</label>
-              <input type="number" value={config.backoffMaxMs} onChange={(e)=>setConfig({...config, backoffMaxMs: e.target.value})} className="w-full p-2 rounded-md border" />
+              <input type="number" value={config.backoffMaxMs} onChange={(e)=>setConfig({...config, backoffMaxMs: e.target.value})} className="w-40 p-2 rounded-md border" />
             </div>
             <div>
               <label className="block font-medium mb-1">Cooldown Threshold</label>
-              <input type="number" value={config.cooldownThreshold} onChange={(e)=>setConfig({...config, cooldownThreshold: e.target.value})} className="w-full p-2 rounded-md border" />
+              <input type="number" value={config.cooldownThreshold} onChange={(e)=>setConfig({...config, cooldownThreshold: e.target.value})} className="w-40 p-2 rounded-md border" />
             </div>
             <div>
               <label className="block font-medium mb-1">Cooldown (ms)</label>
-              <input type="number" value={config.cooldownMs} onChange={(e)=>setConfig({...config, cooldownMs: e.target.value})} className="w-full p-2 rounded-md border" />
+              <input type="number" value={config.cooldownMs} onChange={(e)=>setConfig({...config, cooldownMs: e.target.value})} className="w-40 p-2 rounded-md border" />
             </div>
           </div>
         </GroupCard>
@@ -290,28 +351,115 @@ const ControlPanel = (props, ref) => {
         </GroupCard>
       )}
 
-      {/* Progresso e Logs */}
-      <GroupCard title="Progresso da Geração">
-        <div className="space-y-3">
-          <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden">
-            <div className="h-full bg-blue-600" style={{ width: `${progressPct}%` }} />
-          </div>
-          <div className="text-sm text-gray-700">ETA: {etaText}</div>
-          {status === 'done' && runId && (
-            <a href={`/api/download/${runId}`} className="inline-block px-3 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium">
-              Baixar CSV
-            </a>
-          )}
-        </div>
-      </GroupCard>
+      {/* Progresso e Logs agora em aba própria */}
+      {activeTab === 'progresso' && (
+        <>
+          <GroupCard title="Progresso da Geração">
+            <div className="space-y-3">
+              <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden">
+                <div className="h-full bg-blue-600" style={{ width: `${progressPct}%` }} />
+              </div>
+              <div className="text-sm text-gray-700">ETA: {etaText}</div>
+              {status === 'done' && runId && (
+                <a href={`/api/download/${runId}`} className="inline-block px-3 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium">
+                  Baixar CSV
+                </a>
+              )}
+            </div>
+          </GroupCard>
 
-      <GroupCard title="Etapas, Consultas e Resultados">
-        <div ref={logsRef} className="h-64 overflow-y-auto bg-white rounded-md border p-3 text-sm">
-          {logs.map((line, idx) => (
-            <div key={idx} className="py-0.5">{line}</div>
-          ))}
-        </div>
-      </GroupCard>
+          <GroupCard title="Etapas, Consultas e Resultados">
+            <div ref={logsRef} className="h-64 overflow-y-auto bg-white rounded-md border p-3 text-sm">
+              {logs.map((line, idx) => (
+                <div key={idx} className="py-0.5">{line}</div>
+              ))}
+            </div>
+          </GroupCard>
+        </>
+      )}
+      {activeTab === 'resultado' && (
+        <>
+          <GroupCard title="Resultado (CSV)">
+            <div className="flex items-center gap-3 mb-3">
+              <button
+                className="px-3 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-50"
+                onClick={async ()=>{
+                  if (!runId) return;
+                  try {
+                    const resp = await fetch(`/api/download/${runId}`);
+                    if (!resp.ok) {
+                      setLogs((l)=>[...l, `Falha ao baixar CSV: ${resp.status}`]);
+                      return;
+                    }
+                    const text = await resp.text();
+                    const parsed = Papa.parse(text, { delimiter: ',', skipEmptyLines: true });
+                    const rows = parsed.data || [];
+                    if (rows.length < 4) {
+                      setLogs((l)=>[...l, 'CSV não possui cabeçalho esperado (3 linhas)']);
+                      return;
+                    }
+                    const header2 = rows[1];
+                    const dataRows = rows.slice(3);
+                    const cols = buildColumnDefs(header2, dataRows);
+                    const rowObjs = dataRows.map((arr) => {
+                      const o = {};
+                      for (let i=0;i<cols.length;i++) o[`c${i}`] = arr[i] ?? '';
+                      return o;
+                    });
+                    setGridColumns(cols);
+                    setGridRows(rowObjs);
+                  } catch (err) {
+                    setLogs((l)=>[...l, `Erro ao processar CSV: ${err.message}`]);
+                  }
+                }}
+                disabled={!runId}
+              >Carregar CSV da última execução</button>
+
+              <label className="inline-flex items-center px-3 py-2 rounded-md bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm font-medium cursor-pointer">
+                <input type="file" accept=".csv,text/csv" className="hidden" onChange={async (e)=>{
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  try {
+                    const text = await file.text();
+                    const parsed = Papa.parse(text, { delimiter: ',', skipEmptyLines: true });
+                    const rows = parsed.data || [];
+                    if (rows.length < 4) {
+                      setLogs((l)=>[...l, 'CSV não possui cabeçalho esperado (3 linhas)']);
+                      return;
+                    }
+                    const header2 = rows[1];
+                    const dataRows = rows.slice(3);
+                    const cols = buildColumnDefs(header2, dataRows);
+                    const rowObjs = dataRows.map((arr) => {
+                      const o = {};
+                      for (let i=0;i<cols.length;i++) o[`c${i}`] = arr[i] ?? '';
+                      return o;
+                    });
+                    setGridColumns(cols);
+                    setGridRows(rowObjs);
+                  } catch (err) {
+                    setLogs((l)=>[...l, `Erro ao processar CSV: ${err.message}`]);
+                  }
+                }} />
+                <span>Importar CSV local</span>
+              </label>
+            </div>
+            <div className="ag-theme-alpine" style={{ height: '70vh', width: '100%' }}>
+              <AgGridReact
+                rowData={gridRows}
+                columnDefs={gridColumns}
+                defaultColDef={{ resizable: true, filter: true, floatingFilter: true }}
+                animateRows={true}
+                onGridReady={(params)=>{
+                  gridApiRef.current = params.api;
+                  gridColumnApiRef.current = params.columnApi;
+                  if (gridQuickFilter) params.api.setQuickFilter(gridQuickFilter);
+                }}
+              />
+            </div>
+          </GroupCard>
+        </>
+      )}
     </div>
   );
 };
