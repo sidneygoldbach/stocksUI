@@ -160,14 +160,24 @@ app.get('/api/download/:runId', (req, res) => {
   fs.createReadStream(p).pipe(res);
 });
 
-// Serve built frontend (Vite dist) under /stocksUI in production
+// Serve built frontend (Vite dist) under configurable base only in production
 try {
   const distDir = path.resolve(process.cwd(), 'dist');
-  if (fs.existsSync(distDir)) {
-    app.use('/stocksUI', express.static(distDir));
+  const shouldServeDist = (process.env.NODE_ENV === 'production') || (String(process.env.SERVE_DIST).toLowerCase() === 'true');
+  const BASE = (process.env.VITE_BASE_PATH || '/stocksUI/').replace(/\/+$/, '');
+  if (shouldServeDist && fs.existsSync(distDir)) {
+    app.use(BASE, express.static(distDir));
     // SPA entry for main app
-    app.get('/stocksUI', (req, res) => {
+    app.get(BASE, (req, res) => {
       res.sendFile(path.join(distDir, 'index.html'));
+    });
+
+    // Explicit mappings for secondary entry and favicon
+    app.get(`${BASE}/INDEX2.html`, (req, res) => {
+      res.sendFile(path.join(distDir, 'INDEX2.html'));
+    });
+    app.get(`${BASE}/favicon.svg`, (req, res) => {
+      res.sendFile(path.join(distDir, 'favicon.svg'));
     });
   }
 } catch {}
