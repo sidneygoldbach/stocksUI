@@ -31,6 +31,16 @@ const getArgNum = (name, def) => {
   const v = Number(entry.split('=')[1]);
   return Number.isFinite(v) ? v : def;
 };
+const getArgBoolStrict = (name, def) => {
+  // Allows forms: "--flag" (true) or "--flag=false"
+  const entry = args.find(s => s.startsWith(name));
+  if (!entry) return def;
+  if (entry.includes('=')) {
+    const v = entry.split('=')[1].toLowerCase();
+    return !(v === 'false' || v === '0' || v === 'no');
+  }
+  return true;
+};
 const cacheTtlHours = getArgNum('--cache-ttl-hours', 24);
 const jitterMinMs = getArgNum('--jitter-min', 300);
 const jitterMaxMs = getArgNum('--jitter-max', 450);
@@ -39,6 +49,9 @@ const cooldownThreshold = getArgNum('--cooldown-threshold', 4);
 const cooldownMs = getArgNum('--cooldown-ms', 8000);
 const targetCount = getArgNum('--target-count', 200);
 const minPriceCutoff = getArgNum('--min-price-cutoff', 5.00);
+// New control flags for handling missing data
+const excludeNa = getArgBoolStrict('--exclude-na', false);
+const minFields = getArgNum('--min-fields', 0);
 // New flags for UI integration
 const outCsvPath = (() => { const entry = args.find(s => s.startsWith('--out-csv=')); return entry ? entry.split('=')[1] : `./Comprehensive_${targetCount}_Stock_Analysis.csv`; })();
 const manualTickersArg = (() => { const entry = args.find(s => s.startsWith('--manual-tickers=')); return entry ? entry.split('=')[1] : ''; })();
@@ -206,23 +219,44 @@ async function safeQuote(ticker) {
   return null;
 }
 
+function isValidNumber(v) { return v != null && Number.isFinite(Number(v)); }
+
 function computeCompositeScore(q) {
   if (!q) return -Infinity;
   const sd = q.summaryDetail || {}; const fd = q.financialData || {}; const ks = q.defaultKeyStatistics || {};
-  const pe = ks.forwardPE ?? ks.trailingPE; 
-  const pb = ks.priceToBook; 
-  const div = sd.dividendYield ?? 0; 
-  const fcfMargin = (fd.freeCashflow && fd.totalRevenue) ? Number(fd.freeCashflow) / Number(fd.totalRevenue) : 0; 
-  const epsGrowth = fd.earningsGrowth ?? 0; 
-  const d2e = fd.debtToEquity; 
-  const s = (
-    normLowerBetter(pe, 6, 35) * weights.pe +
-    normLowerBetter(pb, 0.7, 6) * weights.pb +
-    clamp01(div * 4) * weights.dividendYield +
-    clamp01(fcfMargin * 4) * weights.fcfMargin +
-    clamp01(epsGrowth * 4) * weights.epsGrowth +
-    normLowerBetter(d2e, 0.15, 2.0) * weights.debtToEquity
-  );
+  const pe = ks.forwardPE ?? ks.trailingPE;
+  const pb = ks.priceToBook;
+  const div = sd.dividendYield;
+  const fcfMargin = (isValidNumber(fd.freeCashflow) && isValidNumber(fd.totalRevenue) && Number(fd.totalRevenue) !== 0)
+    ? Number(fd.freeCashflow) / Number(fd.totalRevenue)
+    : null;
+  const epsGrowth = fd.earningsGrowth;
+  const d2e = fd.debtToEquity;
+
+  const availability = [
+    isValidNumber(pe),
+    isValidNumber(pb),
+    isValidNumber(div),
+    isValidNumber(fcfMargin),
+    isValidNumber(epsGrowth),
+    isValidNumber(d2e)
+  ];
+  const availableCount = availability.reduce((acc, v) => acc + (v ? 1 : 0), 0);
+
+  if (excludeNa && minFields > 0 && availableCount < minFields) return -Infinity;
+
+  // Normalize weights by available metrics
+  const parts = [];
+  if (isValidNumber(pe)) parts.push({ w: weights.pe, v: normLowerBetter(pe, 6, 35) });
+  if (isValidNumber(pb)) parts.push({ w: weights.pb, v: normLowerBetter(pb, 0.7, 6) });
+  if (isValidNumber(div)) parts.push({ w: weights.dividendYield, v: clamp01(Number(div) * 4) });
+  if (isValidNumber(fcfMargin)) parts.push({ w: weights.fcfMargin, v: clamp01(Number(fcfMargin) * 4) });
+  if (isValidNumber(epsGrowth)) parts.push({ w: weights.epsGrowth, v: clamp01(Number(epsGrowth) * 4) });
+  if (isValidNumber(d2e)) parts.push({ w: weights.debtToEquity, v: normLowerBetter(d2e, 0.15, 2.0) });
+
+  if (parts.length === 0) return -Infinity;
+  const wsum = parts.reduce((acc, p) => acc + p.w, 0);
+  const s = parts.reduce((acc, p) => acc + p.w * p.v, 0) / (wsum || 1);
   return isFinite(s) ? s : -Infinity;
 }
 
@@ -611,56 +645,58 @@ async function main() {
     const r = results.find(x => x.ticker === t);
     const name = r?.q?.price?.longName || r?.q?.price?.shortName || t;
     const priceObj = r?.q?.price || {}; const fd = r?.q?.financialData || {}; const sd = r?.q?.summaryDetail || {}; const ks = r?.q?.defaultKeyStatistics || {};
-    const marketCap = priceObj.marketCap ? Number(priceObj.marketCap) : (ks.marketCap ? Number(ks.marketCap) : null);
-    const fcfMargin = (fd.freeCashflow && fd.totalRevenue) ? Number(fd.freeCashflow) / Number(fd.totalRevenue) : 0;
-    const fcfYield = (fd.freeCashflow && marketCap) ? Number(fd.freeCashflow) / marketCap : '';
-    const roic = (fd.returnOnAssets != null) ? fd.returnOnAssets : (fd.returnOnEquity ?? '');
-    const interestCoverage = (fd.interestCoverage != null) ? fd.interestCoverage : '';
+    const marketCap = isValidNumber(priceObj.marketCap) ? Number(priceObj.marketCap) : (isValidNumber(ks.marketCap) ? Number(ks.marketCap) : null);
+    const fcfMarginVal = (isValidNumber(fd.freeCashflow) && isValidNumber(fd.totalRevenue) && Number(fd.totalRevenue) !== 0) ? Number(fd.freeCashflow) / Number(fd.totalRevenue) : null;
+    const fcfYield = (isValidNumber(fd.freeCashflow) && isValidNumber(marketCap) && Number(marketCap) !== 0) ? Number(fd.freeCashflow) / Number(marketCap) : '';
+    const roic = (isValidNumber(fd.returnOnAssets)) ? fd.returnOnAssets : (isValidNumber(fd.returnOnEquity) ? fd.returnOnEquity : '');
+    const interestCoverage = (isValidNumber(fd.interestCoverage)) ? fd.interestCoverage : '';
 
     const row = [name, t];
     // Financials
     row.push(r?.aspects?.financialsScore ?? '');
     row.push(
-      clamp01(normHigherBetter(fd.grossMargins, 0.2, 0.6)),
-      clamp01(normHigherBetter(fd.operatingMargins, 0.05, 0.3)),
-      clamp01(normHigherBetter(fd.netMargins, 0.02, 0.25)),
-      clamp01((fd.revenueGrowth ?? 0) * 4),
-      clamp01((fd.earningsGrowth ?? 0) * 4),
-      clamp01(fcfMargin * 4),
-      normLowerBetter(fd.debtToEquity, 0.15, 2.0),
+      isValidNumber(fd.grossMargins) ? clamp01(normHigherBetter(fd.grossMargins, 0.2, 0.6)) : '',
+      isValidNumber(fd.operatingMargins) ? clamp01(normHigherBetter(fd.operatingMargins, 0.05, 0.3)) : '',
+      isValidNumber(fd.netMargins) ? clamp01(normHigherBetter(fd.netMargins, 0.02, 0.25)) : '',
+      isValidNumber(fd.revenueGrowth) ? clamp01(Number(fd.revenueGrowth) * 4) : '',
+      isValidNumber(fd.earningsGrowth) ? clamp01(Number(fd.earningsGrowth) * 4) : '',
+      isValidNumber(fcfMarginVal) ? clamp01(Number(fcfMarginVal) * 4) : '',
+      isValidNumber(fd.debtToEquity) ? normLowerBetter(fd.debtToEquity, 0.15, 2.0) : '',
       '' // spacer
     );
     // Valuation
     row.push(r?.aspects?.valuationScore ?? '');
     row.push(
-      normLowerBetter(ks.trailingPE, 6, 35),
-      normLowerBetter(ks.forwardPE, 6, 35),
-      normLowerBetter(ks.priceToBook, 0.7, 6),
-      normLowerBetter(ks.enterpriseToEbitda, 4, 20),
-      clamp01((sd.dividendYield ?? 0) * 4),
+      isValidNumber(ks.trailingPE) ? normLowerBetter(ks.trailingPE, 6, 35) : '',
+      isValidNumber(ks.forwardPE) ? normLowerBetter(ks.forwardPE, 6, 35) : '',
+      isValidNumber(ks.priceToBook) ? normLowerBetter(ks.priceToBook, 0.7, 6) : '',
+      isValidNumber(ks.enterpriseToEbitda) ? normLowerBetter(ks.enterpriseToEbitda, 4, 20) : '',
+      isValidNumber(sd.dividendYield) ? clamp01(Number(sd.dividendYield) * 4) : '',
       ''
     );
     // Growth
     row.push(r?.aspects?.growthScore ?? '');
     row.push(
-      clamp01((fd.earningsGrowth ?? 0) * 4),
-      clamp01((fd.revenueGrowth ?? 0) * 4),
-      normHigherBetter(fd.returnOnEquity, 0.05, 0.25),
+      isValidNumber(fd.earningsGrowth) ? clamp01(Number(fd.earningsGrowth) * 4) : '',
+      isValidNumber(fd.revenueGrowth) ? clamp01(Number(fd.revenueGrowth) * 4) : '',
+      isValidNumber(fd.returnOnEquity) ? normHigherBetter(fd.returnOnEquity, 0.05, 0.25) : '',
       ''
     );
     // Risk
     row.push(r?.aspects?.riskScore ?? '');
     row.push(
-      normLowerBetter(fd.debtToEquity, 0.15, 2.0),
-      normHigherBetter(fd.currentRatio, 1.2, 3.0),
-      normHigherBetter(fd.quickRatio, 1.0, 2.5),
-      normLowerBetter(sd.beta, 0.8, 2.0),
+      isValidNumber(fd.debtToEquity) ? normLowerBetter(fd.debtToEquity, 0.15, 2.0) : '',
+      isValidNumber(fd.currentRatio) ? normHigherBetter(fd.currentRatio, 1.2, 3.0) : '',
+      isValidNumber(fd.quickRatio) ? normHigherBetter(fd.quickRatio, 1.0, 2.5) : '',
+      isValidNumber(sd.beta) ? normLowerBetter(sd.beta, 0.8, 2.0) : '',
       ''
     );
     // News
     row.push(r?.aspects?.newsScore ?? '');
     row.push(
-      normHigherBetter(fd.targetMeanPrice && priceObj.regularMarketPrice ? (Number(fd.targetMeanPrice) - Number(priceObj.regularMarketPrice)) / Number(priceObj.regularMarketPrice) : 0, 0.05, 0.30),
+      (isValidNumber(fd.targetMeanPrice) && isValidNumber(priceObj.regularMarketPrice) && Number(priceObj.regularMarketPrice) !== 0)
+        ? normHigherBetter((Number(fd.targetMeanPrice) - Number(priceObj.regularMarketPrice)) / Number(priceObj.regularMarketPrice), 0.05, 0.30)
+        : '',
       ''
     );
     // Outlook
@@ -668,38 +704,38 @@ async function main() {
     {
       const pe = ks.forwardPE ?? ks.trailingPE;
       const pb = ks.priceToBook;
-      const div = sd.dividendYield ?? 0;
-      const epsGrowth = fd.earningsGrowth ?? 0;
+      const div = sd.dividendYield;
+      const epsGrowth = fd.earningsGrowth;
       const d2e = fd.debtToEquity;
       row.push(
-        normLowerBetter(pe, 6, 35),
-        normLowerBetter(pb, 0.7, 6),
-        clamp01(div * 4),
-        clamp01(fcfMargin * 4),
-        clamp01(epsGrowth * 4),
-        normLowerBetter(d2e, 0.15, 2.0),
+        isValidNumber(pe) ? normLowerBetter(pe, 6, 35) : '',
+        isValidNumber(pb) ? normLowerBetter(pb, 0.7, 6) : '',
+        isValidNumber(div) ? clamp01(Number(div) * 4) : '',
+        isValidNumber(fcfMarginVal) ? clamp01(Number(fcfMarginVal) * 4) : '',
+        isValidNumber(epsGrowth) ? clamp01(Number(epsGrowth) * 4) : '',
+        isValidNumber(d2e) ? normLowerBetter(d2e, 0.15, 2.0) : '',
         ''
       );
     }
     // Buffett
     row.push(r?.aspects?.buffettScore ?? '');
     row.push(
-      clamp01((sd.dividendYield ?? 0) * 4),
-      normLowerBetter(fd.debtToEquity, 0.15, 2.0),
-      normHigherBetter(fd.returnOnEquity, 0.10, 0.30),
-      clamp01(fcfMargin * 4),
+      isValidNumber(sd.dividendYield) ? clamp01(Number(sd.dividendYield) * 4) : '',
+      isValidNumber(fd.debtToEquity) ? normLowerBetter(fd.debtToEquity, 0.15, 2.0) : '',
+      isValidNumber(fd.returnOnEquity) ? normHigherBetter(fd.returnOnEquity, 0.10, 0.30) : '',
+      isValidNumber(fcfMarginVal) ? clamp01(Number(fcfMarginVal) * 4) : '',
       ''
     );
     // Technical
     row.push(r?.aspects?.technicalScore ?? '');
     row.push(
-      normHigherBetter(priceObj.regularMarketChangePercent, -0.02, 0.05),
+      isValidNumber(priceObj.regularMarketChangePercent) ? normHigherBetter(priceObj.regularMarketChangePercent, -0.02, 0.05) : '',
       ''
     );
     // Sentiment
     row.push(r?.aspects?.sentimentScore ?? '');
     row.push(
-      normLowerBetter(fd.recommendationMean, 1.0, 4.0),
+      isValidNumber(fd.recommendationMean) ? normLowerBetter(fd.recommendationMean, 1.0, 4.0) : '',
       ''
     );
 

@@ -23,7 +23,7 @@ function suggestCsvName() {
 
 app.post('/api/run-analysis', (req, res) => {
   const {
-    strict = false,
+    strict = (process.env.NODE_ENV === 'production'),
     quiet = true,
     cacheTtlHours = 24,
     jitterMin = 300,
@@ -41,6 +41,9 @@ app.post('/api/run-analysis', (req, res) => {
     minPriceCutoff = 5.00,
     // new: number of stocks to show per Top list
     topRankCount = 10,
+    // new: control handling of missing data
+    excludeNa = strict, // default to true in production/strict
+    minFields = 4,
   } = req.body || {};
 
   const runId = makeRunId();
@@ -67,6 +70,9 @@ app.post('/api/run-analysis', (req, res) => {
     noValidationLogs ? '--no-validation-logs' : '',
     // new: pass top rank count to script
     `--top-rank-count=${Number(topRankCount)}`,
+    // new: missing data handling flags
+    excludeNa ? '--exclude-na' : '',
+    `--min-fields=${Number(minFields)}`,
   ].filter(Boolean);
 
   const proc = spawn('node', args, { cwd: process.cwd() });
