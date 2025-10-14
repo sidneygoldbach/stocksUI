@@ -23,6 +23,9 @@ const defaultConfig = {
   noValidationLogs: false,
   // new: how many stocks to rank in each Top list at the bottom of CSV
   topRankCount: 10,
+  // missing-data handling (advanced)
+  excludeNa: true,
+  minFields: 4,
 };
 
 function suggestCsv() {
@@ -144,6 +147,9 @@ const ControlPanel = (props, ref) => {
         manualTickers: (config.manualTickers || []).filter(Boolean).slice(0,50),
         // new param: top rank count
         topRankCount: Number(config.topRankCount),
+        // missing-data handling to backend
+        excludeNa: !!config.excludeNa,
+        minFields: Number(config.minFields),
       })
     });
     const data = await resp.json();
@@ -323,6 +329,19 @@ const ControlPanel = (props, ref) => {
                 <input type="checkbox" checked={config.noValidationLogs} onChange={(e)=>setConfig({...config, noValidationLogs: e.target.checked})} />
                 <span>Desligar logs de falhas de validação</span>
               </label>
+              {/* Missing-data handling controls */}
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={config.excludeNa} onChange={(e)=>setConfig({...config, excludeNa: e.target.checked})} />
+                <span>Excluir tickers com dados insuficientes</span>
+              </label>
+              <div>
+                <label className="block font-medium mb-1">Mínimo de campos válidos</label>
+                <input type="number" min="0" value={config.minFields} onChange={(e)=>{
+                  const n = Math.max(0, Number(e.target.value) || 0);
+                  setConfig({ ...config, minFields: n });
+                }} className="w-40 p-2 rounded-md border" />
+                <p className="text-gray-600 text-xs mt-1">Exige pelo menos N métricas válidas para pontuar e ranquear.</p>
+              </div>
             </div>
           </div>
         </GroupCard>
