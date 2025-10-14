@@ -160,6 +160,18 @@ app.get('/api/download/:runId', (req, res) => {
   fs.createReadStream(p).pipe(res);
 });
 
+// Serve built frontend (Vite dist) under /stocksUI in production
+try {
+  const distDir = path.resolve(process.cwd(), 'dist');
+  if (fs.existsSync(distDir)) {
+    app.use('/stocksUI', express.static(distDir));
+    // SPA entry for main app
+    app.get('/stocksUI', (req, res) => {
+      res.sendFile(path.join(distDir, 'index.html'));
+    });
+  }
+} catch {}
+
 const PORT = Number(process.env.PORT) || 3001;
 app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);
