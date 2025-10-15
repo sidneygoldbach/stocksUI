@@ -106,6 +106,55 @@ const ControlPanel = (props, ref) => {
     return cols;
   };
 
+  // Helper: parseia CSV e preenche o grid
+  const parseCsvAndSetGrid = (text) => {
+    try {
+      const parsed = Papa.parse(text, { delimiter: ',', skipEmptyLines: true });
+      const rows = parsed.data || [];
+      if (rows.length < 4) {
+        setLogs((l)=>[...l, 'CSV não possui cabeçalho esperado (3 linhas)']);
+        return false;
+      }
+      const header2 = rows[1];
+      const dataRows = rows.slice(3);
+      const cols = buildColumnDefs(header2, dataRows);
+      const rowObjs = dataRows.map((arr) => {
+        const o = {};
+        for (let i=0;i<cols.length;i++) o[`c${i}`] = arr[i] ?? '';
+        return o;
+      });
+      setGridColumns(cols);
+      setGridRows(rowObjs);
+      // Ajuste fino de colunas após dados carregados
+      setTimeout(() => {
+        try {
+          gridApiRef.current?.sizeColumnsToFit();
+        } catch {}
+      }, 0);
+      return true;
+    } catch (err) {
+      setLogs((l)=>[...l, `Erro ao processar CSV: ${err.message}`]);
+      return false;
+    }
+  };
+
+  // Helper: baixa CSV da última execução e carrega no grid
+  const loadLatestRunCsv = async () => {
+    if (!runId) return false;
+    try {
+      const resp = await fetch(`/api/download/${runId}`);
+      if (!resp.ok) {
+        setLogs((l)=>[...l, `Falha ao baixar CSV: ${resp.status}`]);
+        return false;
+      }
+      const text = await resp.text();
+      return parseCsvAndSetGrid(text);
+    } catch (err) {
+      setLogs((l)=>[...l, `Erro ao baixar CSV: ${err.message}`]);
+      return false;
+    }
+  };
+
   useEffect(() => {
     localStorage.setItem('analysis_config', JSON.stringify(config));
   }, [config]);
@@ -124,6 +173,8 @@ const ControlPanel = (props, ref) => {
 
   const startRun = async () => {
     setStatus('starting');
+    // Ir para a aba de Progresso durante a execução
+    setActiveTab('progresso');
     setLogs((l) => [...l, 'Iniciando análise...']);
     const resp = await fetch('/api/run-analysis', {
       method: 'POST',
@@ -171,6 +222,15 @@ const ControlPanel = (props, ref) => {
       setStatus('done');
       setLogs((l) => [...l, `Finalizado. Arquivo: ${payload.outCsv}`]);
       es.close();
+      // Auto-carregar CSV e abrir aba Resultado
+      (async () => {
+        setLogs((l)=>[...l, 'Carregando CSV para a aba Resultado...']);
+        const ok = await loadLatestRunCsv();
+        if (ok) {
+          setLogs((l)=>[...l, 'CSV carregado. Exibindo Resultado.']);
+          setActiveTab('resultado');
+        }
+      })();
     });
   };
   useImperativeHandle(ref, () => ({ startRun }))
@@ -403,33 +463,7 @@ const ControlPanel = (props, ref) => {
               <button
                 className="px-3 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-50"
                 onClick={async ()=>{
-                  if (!runId) return;
-                  try {
-                    const resp = await fetch(`/api/download/${runId}`);
-                    if (!resp.ok) {
-                      setLogs((l)=>[...l, `Falha ao baixar CSV: ${resp.status}`]);
-                      return;
-                    }
-                    const text = await resp.text();
-                    const parsed = Papa.parse(text, { delimiter: ',', skipEmptyLines: true });
-                    const rows = parsed.data || [];
-                    if (rows.length < 4) {
-                      setLogs((l)=>[...l, 'CSV não possui cabeçalho esperado (3 linhas)']);
-                      return;
-                    }
-                    const header2 = rows[1];
-                    const dataRows = rows.slice(3);
-                    const cols = buildColumnDefs(header2, dataRows);
-                    const rowObjs = dataRows.map((arr) => {
-                      const o = {};
-                      for (let i=0;i<cols.length;i++) o[`c${i}`] = arr[i] ?? '';
-                      return o;
-                    });
-                    setGridColumns(cols);
-                    setGridRows(rowObjs);
-                  } catch (err) {
-                    setLogs((l)=>[...l, `Erro ao processar CSV: ${err.message}`]);
-                  }
+                  await loadLatestRunCsv();
                 }}
                 disabled={!runId}
               >Carregar CSV da última execução</button>
@@ -469,6 +503,10 @@ const ControlPanel = (props, ref) => {
                 columnDefs={gridColumns}
                 defaultColDef={{ resizable: true, filter: true, floatingFilter: true }}
                 animateRows={true}
+                suppressBrowserResizeObserver={true}
+                onFirstDataRendered={(params)=>{
+                  try { params.api.sizeColumnsToFit(); } catch {}
+                }}
                 onGridReady={(params)=>{
                   gridApiRef.current = params.api;
                   gridColumnApiRef.current = params.columnApi;
