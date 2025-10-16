@@ -55,6 +55,13 @@ const GroupCard = ({ title, children }) => (
 
 const ControlPanel = (props, ref) => {
   const [activeTab, setActiveTab] = useState('geral');
+  // Resultado sub-tabs (visual grouping of CSV)
+  const RESULT_SUBTABS = ['Financials','Valuation','Growth','Risk','News','Outlook','Other Metrics','Composites'];
+  const [resultSubtab, setResultSubtab] = useState(() => localStorage.getItem('result_subtab') || 'Financials');
+  const gridApisByGroup = useRef({});
+  const gridColsByGroupRef = useRef({});
+  const [groupColumnDefs, setGroupColumnDefs] = useState({});
+  const [initialSortByGroup, setInitialSortByGroup] = useState({});
   const [config, setConfig] = useState(() => {
     const saved = localStorage.getItem('analysis_config');
     const base = saved ? JSON.parse(saved) : defaultConfig;
@@ -71,6 +78,55 @@ const ControlPanel = (props, ref) => {
   const [gridQuickFilter, setGridQuickFilter] = useState('');
   const gridApiRef = useRef(null);
   const gridColumnApiRef = useRef(null);
+  // canonical group mapping for row1
+  const CANONICAL_GROUPS = useMemo(() => ({
+    Financials: new Set(['Financials','Financial Statements Analysis']),
+    Valuation: new Set(['Valuation','Valuation Metrics']),
+    Growth: new Set(['Growth','Growth Potential & Competitive Positioning']),
+    Risk: new Set(['Risk','Risk Analysis']),
+    News: new Set(['News','Recent News & Catalysts']),
+    Outlook: new Set(['Outlook','Investment Outlook & Conclusion']),
+    Buffett: new Set(['Buffett','Warren Buffett Analysis','Buffet']),
+    Technical: new Set(['Technical','Technical Analysis']),
+    Sentiment: new Set(['Sentiment','Sentiment Analysis']),
+    Extras: new Set(['Extras']),
+    Composites: new Set(['Composites']),
+  }), []);
+  const toCanonicalGroup = (label) => {
+    const l = String(label || '').trim();
+    for (const [canon, set] of Object.entries(CANONICAL_GROUPS)) {
+      if (set.has(l)) return canon;
+    }
+    return l || '';
+  };
+  // Heurística de categoria por métrica (para pesos compostos)
+  const CATEGORY_KEYS = ['finance','risk','technical','sentiment','news'];
+  const CATEGORY_WEIGHTS = {
+    ST:        { technical: 0.35, sentiment: 0.25, news: 0.20, finance: 0.15, risk: 0.05 },
+    ST_LR:     { technical: 0.30, sentiment: 0.20, news: 0.15, finance: 0.15, risk: 0.20 },
+    LT:        { finance: 0.40, risk: 0.20, technical: 0.15, sentiment: 0.10, news: 0.15 },
+    LT_LR:     { finance: 0.35, risk: 0.35, technical: 0.10, sentiment: 0.10, news: 0.10 },
+  };
+  const metricCategory = (groupLabel, metricName) => {
+    const g = String(groupLabel || '').toLowerCase();
+    const m = String(metricName || '').toLowerCase();
+    // defaults by group
+    let cat = 'finance';
+    if (g.includes('risk')) cat = 'risk';
+    else if (g.includes('technical')) cat = 'technical';
+    else if (g.includes('sentiment')) cat = 'sentiment';
+    else if (g.includes('news') || g.includes('outlook')) cat = 'news';
+    else if (g.includes('valuation') || g.includes('growth') || g.includes('financial')) cat = 'finance';
+    else if (g.includes('buffett')) cat = 'finance';
+    else if (g.includes('extras')) cat = 'finance';
+    // overrides by keywords
+    if (/(beta|volat|drawdown|risk|debt|liabilit|interest coverage|short interest|lower-better)/.test(m)) cat = 'risk';
+    if (/(rsi|macd|sma|ema|adx|stochastic|momentum)/.test(m)) cat = 'technical';
+    if (/(sentiment|analyst|recommendation|rating)/.test(m)) cat = 'sentiment';
+    if (/(news|catalyst|earnings surprise|guidance|outlook)/.test(m)) cat = 'news';
+    if (/(fcf|cash flow|roe|roic|margin|revenue|eps|dividend|pe|p\/e|ev|ebitda|price to book|pb)/.test(m)) cat = 'finance';
+    return cat;
+  };
 
   // Helpers para construir colunas com auto-size baseado em dados
   const isNumeric = (val) => {
@@ -80,7 +136,7 @@ const ControlPanel = (props, ref) => {
     if (s === '') return false;
     return !isNaN(Number(s));
   };
-  const buildColumnDefs = (header2, dataRows) => {
+  const buildColumnDefs = (header2, dataRows, header1Opt) => {
     const cols = header2.map((h, idx) => ({ headerName: String(h || ''), field: `c${idx}`, resizable: true }));
     // detectar tipo de filtro e calcular largura por dados
     const widths = new Array(cols.length).fill(80);
@@ -103,6 +159,9 @@ const ControlPanel = (props, ref) => {
       cols[i].filter = isMostlyNumeric ? 'agNumberColumnFilter' : 'agTextColumnFilter';
       cols[i].width = widths[i];
     }
+    // fixar nomes dos dois primeiros campos caso header2 vazio
+    if (header1Opt && cols[0] && !String(cols[0].headerName).trim()) cols[0].headerName = String(header1Opt[0] || 'Company Name');
+    if (header1Opt && cols[1] && !String(cols[1].headerName).trim()) cols[1].headerName = String(header1Opt[1] || 'Ticker');
     return cols;
   };
 
@@ -115,20 +174,201 @@ const ControlPanel = (props, ref) => {
         setLogs((l)=>[...l, 'CSV não possui cabeçalho esperado (3 linhas)']);
         return false;
       }
+      const header1 = rows[0];
       const header2 = rows[1];
       const dataRows = rows.slice(3);
-      const cols = buildColumnDefs(header2, dataRows);
+      const cols = buildColumnDefs(header2, dataRows, header1);
       const rowObjs = dataRows.map((arr) => {
         const o = {};
         for (let i=0;i<cols.length;i++) o[`c${i}`] = arr[i] ?? '';
         return o;
       });
+      // mapeamento dos grupos por coluna (linha 1) com faixa contínua
+      const groupIndices = {};
+      let currentCanon = '';
+      for (let i=2;i<header1.length;i++) {
+        const raw = String(header1[i] || '').trim();
+        if (raw) currentCanon = toCanonicalGroup(raw);
+        if (!currentCanon) continue;
+        if (!groupIndices[currentCanon]) groupIndices[currentCanon] = [];
+        groupIndices[currentCanon].push(i);
+      }
+      // calcular Composite_Geral
+      const compositeIdxs = (groupIndices['Composites'] || []).slice();
+      // propriedades por coluna para normalização
+      const colProps = header2.map((h2, i) => {
+        const s = String(h2 || '').toLowerCase();
+        const isScore = s.includes('score') || s.includes('(norm)');
+        const lowerBetter = s.includes('lower-better');
+        let min = Infinity, max = -Infinity;
+        if (!isScore) {
+          for (let r=0;r<dataRows.length;r++) {
+            const v = parseFloat(dataRows[r][i]);
+            if (!isNaN(v)) { min = Math.min(min, v); max = Math.max(max, v); }
+          }
+        }
+        return { isScore, lowerBetter, min, max };
+      });
+      // índices do conjunto Other Metrics (Buffett + Technical + Sentiment + Extras)
+      const otherIdxs = [
+        ...(groupIndices['Buffett'] || []),
+        ...(groupIndices['Technical'] || []),
+        ...(groupIndices['Sentiment'] || []),
+        ...(groupIndices['Extras'] || []),
+      ];
+      // normalização e scores
+      const normalizeAt = (i, raw) => {
+        const p = colProps[i];
+        let v = parseFloat(raw);
+        if (isNaN(v)) return null;
+        if (p.isScore) {
+          v = Math.max(0, Math.min(1, v));
+        } else {
+          if (isFinite(p.min) && isFinite(p.max) && p.max > p.min) {
+            v = (v - p.min) / (p.max - p.min);
+          } else {
+            // fallback: clamp to [0,1] if seems like percentage
+            v = Math.max(0, Math.min(1, v));
+          }
+        }
+        if (p.lowerBetter) v = 1 - v;
+        return Math.max(0, Math.min(1, v));
+      };
+      // compute derived fields per row
+      for (let r=0;r<rowObjs.length;r++) {
+        // composite geral: média simples dos quatro composites
+        let compVals = [];
+        for (const i of compositeIdxs) {
+          const v = parseFloat(rowObjs[r][`c${i}`]);
+          if (!isNaN(v)) compVals.push(v);
+        }
+        const compMean = compVals.length ? (compVals.reduce((a,b)=>a+b,0)/compVals.length) : 0;
+        rowObjs[r].computedComposite = compMean;
+        // Other Metrics score: média das métricas normalizadas de Buffett/Technical/Sentiment/Extras
+        let otherVals = [];
+        for (const i of otherIdxs) {
+          const vNorm = normalizeAt(i, rowObjs[r][`c${i}`]);
+          if (vNorm != null) otherVals.push(vNorm);
+        }
+        const otherMean = otherVals.length ? (otherVals.reduce((a,b)=>a+b,0)/otherVals.length) : 0;
+        rowObjs[r].computedOtherScore = otherMean;
+        // Composite Geral Ponderado (inclui Special e demais grupos via categorias)
+        // coleciona valores normalizados por categoria
+        const catVals = { finance: [], risk: [], technical: [], sentiment: [], news: [] };
+        for (let i=2;i<header2.length;i++) {
+          const vNorm = normalizeAt(i, rowObjs[r][`c${i}`]);
+          if (vNorm == null) continue;
+          const cat = metricCategory(header1[i], header2[i]);
+          if (!CATEGORY_KEYS.includes(cat)) continue;
+          catVals[cat].push(vNorm);
+        }
+        const catMeans = Object.fromEntries(CATEGORY_KEYS.map((k)=>{
+          const arr = catVals[k];
+          const mean = arr.length ? (arr.reduce((a,b)=>a+b,0)/arr.length) : 0;
+          return [k, mean];
+        }));
+        const wsum = (W) => {
+          let s = 0;
+          for (const k of CATEGORY_KEYS) s += (W[k] || 0) * (catMeans[k] || 0);
+          return s;
+        };
+        const cST    = wsum(CATEGORY_WEIGHTS.ST);
+        const cSTLR  = wsum(CATEGORY_WEIGHTS.ST_LR);
+        const cLT    = wsum(CATEGORY_WEIGHTS.LT);
+        const cLTLR  = wsum(CATEGORY_WEIGHTS.LT_LR);
+        const compW  = (cST + cSTLR + cLT + cLTLR) / 4;
+        rowObjs[r].computedCompositeST = cST;
+        rowObjs[r].computedCompositeSTLR = cSTLR;
+        rowObjs[r].computedCompositeLT = cLT;
+        rowObjs[r].computedCompositeLTLR = cLTLR;
+        rowObjs[r].computedCompositeW = compW;
+      }
       setGridColumns(cols);
       setGridRows(rowObjs);
+      // construir colunas por grupo para sub-abas
+      const nameTickerPinned = [
+        {
+          headerName: String(header1[0] || 'Company Name'),
+          field: 'c0',
+          filter: 'agTextColumnFilter',
+          pinned: 'left',
+          width: 180,
+          resizable: true,
+        },
+        {
+          headerName: String(header1[1] || 'Ticker'),
+          field: 'c1',
+          filter: 'agTextColumnFilter',
+          pinned: 'left',
+          width: 120,
+          resizable: true,
+        },
+      ];
+      const groupDefs = {};
+      const initialSort = {};
+      const cloneDef = (i) => ({ ...cols[i] });
+      const addCommon = (arr) => ([ ...nameTickerPinned, ...arr ]);
+      // big groups
+      for (const g of ['Financials','Valuation','Growth','Risk','News','Outlook']) {
+        const idxs = groupIndices[g] || [];
+        const defs = idxs.map((i) => cloneDef(i));
+        groupDefs[g] = addCommon(defs);
+        const scoreIdx = idxs.find((i)=>String(header2[i] || '').trim().toLowerCase() === 'score');
+        initialSort[g] = scoreIdx != null ? `c${scoreIdx}` : null;
+      }
+      // composites
+      {
+        const idxs = compositeIdxs || [];
+        // Para evitar duplicidade com colunas do CSV, mantemos apenas os dois agregados calculados
+        const defs = [
+          { headerName: 'Composite_Geral_Ponderado', field: 'computedCompositeW', filter: 'agNumberColumnFilter', resizable: true, width: 190 },
+          { headerName: 'Composite_Geral (Igual)', field: 'computedComposite', filter: 'agNumberColumnFilter', resizable: true, width: 170 },
+          ...idxs.map((i)=>cloneDef(i))
+        ];
+        groupDefs['Composites'] = addCommon(defs);
+        initialSort['Composites'] = 'computedCompositeW';
+      }
+      // Other Metrics (Buffett + Technical + Sentiment + Extras)
+      {
+        const idxs = otherIdxs || [];
+        // Helper: detectar coluna "em branco" (sem header significativo E sem dados)
+        const isBlankColumn = (i) => {
+          const raw = String(header2[i] || '').trim();
+          // se o header contém apenas separadores/pontuação, tratar como em branco
+          const compact = raw.replace(/[\|–—\-_.\s]/g, '');
+          if (raw && compact.length === 0) return true;
+          if (raw) return false;
+          // header vazio: verificar se há algum dado não vazio
+          for (let r=0;r<rowObjs.length;r++) {
+            const v = rowObjs[r][`c${i}`];
+            if (v != null && String(v).trim() !== '') return false;
+          }
+          return true;
+        };
+        // Remover colunas duplicadas de Score, quaisquer "Composite_*" e colunas em branco
+        const filteredIdxs = idxs.filter((i) => {
+          const h2 = String(header2[i] || '').trim().toLowerCase();
+          if (isBlankColumn(i)) return false;
+          if (h2.includes('score')) return false; // manter apenas o Score agregado calculado
+          if (h2.startsWith('composite')) return false; // composites só no subgrupo Composites
+          return true;
+        });
+        const defs = [
+          { headerName: 'Score', field: 'computedOtherScore', filter: 'agNumberColumnFilter', resizable: true, width: 140 },
+          ...filteredIdxs.map((i)=>cloneDef(i))
+        ];
+        groupDefs['Other Metrics'] = addCommon(defs);
+        initialSort['Other Metrics'] = 'computedOtherScore';
+      }
+      setGroupColumnDefs(groupDefs);
+      setInitialSortByGroup(initialSort);
+      gridColsByGroupRef.current = groupDefs;
       // Ajuste fino de colunas após dados carregados
       setTimeout(() => {
         try {
-          gridApiRef.current?.sizeColumnsToFit();
+          // size current tab if available
+          const api = gridApisByGroup.current?.[resultSubtab] || gridApiRef.current;
+          api?.sizeColumnsToFit();
         } catch {}
       }, 0);
       return true;
@@ -158,6 +398,10 @@ const ControlPanel = (props, ref) => {
   useEffect(() => {
     localStorage.setItem('analysis_config', JSON.stringify(config));
   }, [config]);
+
+  useEffect(() => {
+    if (resultSubtab) localStorage.setItem('result_subtab', resultSubtab);
+  }, [resultSubtab]);
 
   useEffect(() => {
     if (logsRef.current) {
@@ -474,41 +718,55 @@ const ControlPanel = (props, ref) => {
                   if (!file) return;
                   try {
                     const text = await file.text();
-                    const parsed = Papa.parse(text, { delimiter: ',', skipEmptyLines: true });
-                    const rows = parsed.data || [];
-                    if (rows.length < 4) {
-                      setLogs((l)=>[...l, 'CSV não possui cabeçalho esperado (3 linhas)']);
-                      return;
-                    }
-                    const header2 = rows[1];
-                    const dataRows = rows.slice(3);
-                    const cols = buildColumnDefs(header2, dataRows);
-                    const rowObjs = dataRows.map((arr) => {
-                      const o = {};
-                      for (let i=0;i<cols.length;i++) o[`c${i}`] = arr[i] ?? '';
-                      return o;
-                    });
-                    setGridColumns(cols);
-                    setGridRows(rowObjs);
+                    parseCsvAndSetGrid(text);
                   } catch (err) {
                     setLogs((l)=>[...l, `Erro ao processar CSV: ${err.message}`]);
                   }
                 }} />
                 <span>Importar CSV local</span>
               </label>
+              <input
+                type="text"
+                value={gridQuickFilter}
+                onChange={(e)=>{
+                  const v = e.target.value;
+                  setGridQuickFilter(v);
+                  // apply across all sub-grids
+                  const apis = gridApisByGroup.current || {};
+                  Object.keys(apis).forEach((k)=>{
+                    try { apis[k]?.setQuickFilter(v); } catch {}
+                  });
+                }}
+                placeholder="Filtro rápido (todas sub-abas)"
+                className="px-2 py-1 rounded-md border text-sm"
+              />
+            </div>
+            {/* Sub-abas para grupos */}
+            <div className="flex flex-wrap gap-2 mb-2">
+              {RESULT_SUBTABS.map((label)=> (
+                <button
+                  key={label}
+                  onClick={()=>setResultSubtab(label)}
+                  className={`px-3 py-1.5 rounded-md border text-xs font-medium ${resultSubtab===label ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                >{label}</button>
+              ))}
             </div>
             <div className="ag-theme-alpine" style={{ height: '70vh', width: '100%' }}>
               <AgGridReact
                 rowData={gridRows}
-                columnDefs={gridColumns}
+                columnDefs={groupColumnDefs[resultSubtab] || []}
                 defaultColDef={{ resizable: true, filter: true, floatingFilter: true }}
                 animateRows={true}
                 suppressBrowserResizeObserver={true}
                 onFirstDataRendered={(params)=>{
-                  try { params.api.sizeColumnsToFit(); } catch {}
+                  try {
+                    const sortField = initialSortByGroup[resultSubtab];
+                    if (sortField) params.api.setSortModel([{ colId: sortField, sort: 'desc' }]);
+                    params.api.sizeColumnsToFit();
+                  } catch {}
                 }}
                 onGridReady={(params)=>{
-                  gridApiRef.current = params.api;
+                  gridApisByGroup.current[resultSubtab] = params.api;
                   gridColumnApiRef.current = params.columnApi;
                   if (gridQuickFilter) params.api.setQuickFilter(gridQuickFilter);
                 }}
