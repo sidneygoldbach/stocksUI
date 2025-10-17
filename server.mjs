@@ -44,6 +44,9 @@ app.post('/api/run-analysis', (req, res) => {
     // new: control handling of missing data
     excludeNa = strict, // default to true in production/strict
     minFields = 4,
+    // novo: filtros pré-análise
+    sectorFilters = [],
+    industryFilters = [],
   } = req.body || {};
 
   const runId = makeRunId();
@@ -73,6 +76,9 @@ app.post('/api/run-analysis', (req, res) => {
     // new: missing data handling flags
     excludeNa ? '--exclude-na' : '',
     `--min-fields=${Number(minFields)}`,
+    // new: pass multi filters (omit when empty = All of them)
+    (Array.isArray(sectorFilters) && sectorFilters.length > 0) ? `--sector-filters=${sectorFilters.join(',')}` : '',
+    (Array.isArray(industryFilters) && industryFilters.length > 0) ? `--industry-filters=${industryFilters.join(',')}` : '',
   ].filter(Boolean);
 
   const proc = spawn('node', args, { cwd: process.cwd() });
@@ -88,7 +94,18 @@ app.post('/api/run-analysis', (req, res) => {
       if (run.suppressSurvey && (line.includes('yahoo-finance-api-feedback') || line.includes('survey') || line.includes('suppressNotices([\'yahooSurvey\'])'))) {
         return;
       }
-      if (run.noValidationLogs && (line.includes('Expected required property') || line.includes('validation.md') || line.includes('validation fails') || line.includes('ScreenerResult'))) {
+      if (run.noValidationLogs && (
+        line.includes('Expected required property') ||
+        line.includes('validation.md') ||
+        line.includes('validation fails') ||
+        line.includes('ScreenerResult') ||
+        line.includes('YahooNumber') ||
+        line.includes('Expected union value') ||
+        line.includes('/criteriaMeta/criteria') ||
+        // Extra ruído do cliente yahoo-finance2
+        line.includes('This may happen intermittently') ||
+        line.includes('yahoo-finance2 v')
+      )) {
         return;
       }
       if (line.startsWith('PROGRESS:')) {
@@ -103,7 +120,24 @@ app.post('/api/run-analysis', (req, res) => {
   });
 
   proc.stderr.on('data', (chunk) => {
-    run.log.push(chunk.toString());
+    const text = chunk.toString();
+    text.split(/\r?\n/).forEach(line => {
+      if (!line) return;
+      if (run.noValidationLogs && (
+        line.includes('Expected required property') ||
+        line.includes('validation.md') ||
+        line.includes('validation fails') ||
+        line.includes('ScreenerResult') ||
+        line.includes('YahooNumber') ||
+        line.includes('Expected union value') ||
+        line.includes('/criteriaMeta/criteria') ||
+        line.includes('This may happen intermittently') ||
+        line.includes('yahoo-finance2 v')
+      )) {
+        return;
+      }
+      run.log.push(line);
+    });
   });
 
   proc.on('exit', (code) => {

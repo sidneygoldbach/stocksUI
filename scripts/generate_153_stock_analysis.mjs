@@ -5,6 +5,9 @@ const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 const baseTickers = [];
 // Lightweight NASDAQ meta discovered from screeners/trending (exchange + price)
 const nasdaqLight = new Map(); // symbol -> { exNameLower, exCodeUpper, price }
+// Contadores globais de chamadas à API e sucessos
+let apiCallsTotal = 0;
+let apiCallsSuccess = 0;
 
 // Parse CLI arguments for runtime behavior flags
 const args = process.argv.slice(2);
@@ -56,6 +59,48 @@ const minFields = getArgNum('--min-fields', 0);
 const outCsvPath = (() => { const entry = args.find(s => s.startsWith('--out-csv=')); return entry ? entry.split('=')[1] : `./Comprehensive_${targetCount}_Stock_Analysis.csv`; })();
 const manualTickersArg = (() => { const entry = args.find(s => s.startsWith('--manual-tickers=')); return entry ? entry.split('=')[1] : ''; })();
 const manualTickers = manualTickersArg ? manualTickersArg.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean).slice(0,50) : [];
+// New: Sector/Industry pre-filters from UI
+const sectorFilterArg = (() => { const entry = args.find(s => s.startsWith('--sector-filter=')); return entry ? entry.split('=')[1] : 'all'; })();
+const sectorFiltersArg = (() => { const entry = args.find(s => s.startsWith('--sector-filters=')); return entry ? entry.split('=')[1] : ''; })();
+const industryFiltersArg = (() => { const entry = args.find(s => s.startsWith('--industry-filters=')); return entry ? entry.split('=')[1] : ''; })();
+const sectorSynonyms = new Map([
+  ['all','all'], ['all of them','all'],
+  ['technology','technology'], ['information technology','technology'], ['tech','technology'],
+  ['healthcare','healthcare'], ['health care','healthcare'],
+  ['financial services','financial-services'], ['financial','financial-services'],
+  ['consumer discretionary','consumer-discretionary'], ['consumer cyclical','consumer-discretionary'],
+  ['communication services','communication-services'], ['communications services','communication-services'],
+  ['industrials','industrials'],
+  ['consumer staples','consumer-staples'], ['consumer defensive','consumer-staples'],
+  ['energy','energy'],
+  ['utilities','utilities'],
+  ['real estate','real-estate'],
+  ['materials','materials'], ['basic materials','materials']
+]);
+const canonicalizeSector = (raw) => {
+  const s = String(raw || '').trim().toLowerCase();
+  if (!s) return 'all';
+  return sectorSynonyms.get(s) || s.replace(/\s+/g, '-');
+};
+const selectedSectorCanonSingle = canonicalizeSector(sectorFilterArg);
+const selectedSectorSet = (() => {
+  const list = (sectorFiltersArg || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
+    .map(canonicalizeSector);
+  if (list.length > 0) return new Set(list);
+  // fallback to single arg if provided and not 'all'
+  return (selectedSectorCanonSingle && selectedSectorCanonSingle !== 'all') ? new Set([selectedSectorCanonSingle]) : new Set();
+})();
+const canonicalizeIndustry = (raw) => String(raw || '').trim().toLowerCase().replace(/\s+/g, '-');
+const selectedIndustrySet = new Set(
+  (industryFiltersArg || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
+    .map(canonicalizeIndustry)
+);
 // Optionally suppress Yahoo survey notice
 if (suppressSurvey && yf?.suppressNotices) {
   try { yf.suppressNotices(['yahooSurvey']); } catch {}
@@ -66,6 +111,16 @@ const logInfo = (...a) => { if (!isQuiet) console.log(...a); };
 const logWarn = (...a) => { if (!isQuiet) console.warn(...a); };
 const logError = (...a) => { if (!isQuiet) console.error(...a); };
 const logProgress = (type, payload = {}) => { if (emitProgress) { try { console.log('PROGRESS:', JSON.stringify({ type, ...payload })); } catch {} } };
+// Snapshot para emissão periódica de progresso com contadores de API
+let lastProgressSnapshot = { processed: 0, total: 0, elapsedMs: 0 };
+let progressPulse = null;
+if (emitProgress) {
+  try {
+    progressPulse = setInterval(() => {
+      logProgress('processing', { ...lastProgressSnapshot, apiCallsTotal, apiCallsSuccess });
+    }, 750);
+  } catch {}
+}
 // Weights for composite undervaluation score
 const weights = { pe: 0.22, pb: 0.18, dividendYield: 0.12, fcfMargin: 0.18, epsGrowth: 0.18, debtToEquity: 0.12 };
 
@@ -151,15 +206,17 @@ async function safeQuoteSummary(ticker) {
     // jitter between attempts
     await sleepJitter();
     try {
+      if (attempt === 1) apiCallsTotal += 1; // não contar retries
       const res = await yf.quoteSummary(
         ticker,
-        { modules: ['price','summaryDetail','financialData','defaultKeyStatistics'] },
+        { modules: ['price','summaryDetail','financialData','defaultKeyStatistics','assetProfile'] },
         {
           // apply validation controls
           validateResult: !skipValidation,
           validation: { logErrors: !noValidationLogs }
         }
       );
+      apiCallsSuccess += 1;
       consecutiveFailures = 0;
       const entry = { ts: nowMs(), data: res };
       qSummaryCache.set(ticker, entry);
@@ -189,6 +246,7 @@ async function safeQuote(ticker) {
     if (delay > 0) await sleep(delay);
     await sleepJitter();
     try {
+      if (attempt === 1) apiCallsTotal += 1; // não contar retries
       const res = await yf.quote(
         ticker,
         undefined,
@@ -197,6 +255,7 @@ async function safeQuote(ticker) {
           validation: { logErrors: !noValidationLogs }
         }
       );
+      apiCallsSuccess += 1;
       consecutiveFailures = 0;
       const entry = { ts: nowMs(), data: res };
       quoteCache.set(ticker, entry);
@@ -338,10 +397,12 @@ async function getNasdaqCandidates() {
   for (const id of scrIds) {
     for (const offset of [0, 100, 200, 300, 400, 500, 600, 700, 800, 900]) {
       try {
+        apiCallsTotal += 1;
         const resp = await yf.screener({ scrIds: id, count: 100, offset }, undefined, {
           validateResult: !skipValidation,
           validation: { logErrors: !noValidationLogs }
         });
+        apiCallsSuccess += 1;
         const quotes = resp?.quotes || resp?.[0]?.quotes || [];
         for (const q of quotes) {
           const exNameLower = (q.fullExchangeName || q.exchange || '').toLowerCase();
@@ -357,10 +418,12 @@ async function getNasdaqCandidates() {
     }
   }
   try {
+    apiCallsTotal += 1;
     const t = await yf.trendingSymbols('US', undefined, {
       validateResult: !skipValidation,
       validation: { logErrors: !noValidationLogs }
     });
+    apiCallsSuccess += 1;
     const quotes = t?.quotes || t?.symbols || [];
     for (const q of quotes) {
       const sym = q.symbol || q;
@@ -423,6 +486,7 @@ async function main() {
   const exCodesNasdaq = new Set(['NMS','NGS','NCM']);
   const totalToCheck = tickersSet.size;
   let processedCount = 0;
+  lastProgressSnapshot = { processed: 0, total: totalToCheck, elapsedMs: 0 };
   for (const t of tickersSet) {
     await sleepJitter();
     // Aggressive local reuse: derive eligibility from nasdaqLight or disk/in-memory caches first
@@ -476,13 +540,37 @@ async function main() {
     }
 
     if (q) {
+      // Pre-filters: Sector and Industry
+      if (selectedSectorSet.size > 0) {
+        const secCanon = canonicalizeSector(q?.assetProfile?.sector || '');
+        if (!secCanon || !selectedSectorSet.has(secCanon)) {
+          processedCount += 1;
+          lastProgressSnapshot = { processed: processedCount, total: totalToCheck, elapsedMs: nowMs() - t0 };
+          if (processedCount % 10 === 0 || processedCount === totalToCheck) {
+            logProgress('processing', { ...lastProgressSnapshot, apiCallsTotal, apiCallsSuccess });
+          }
+          continue;
+        }
+      }
+      if (selectedIndustrySet.size > 0) {
+        const indCanon = canonicalizeIndustry(q?.assetProfile?.industry || '');
+        if (!indCanon || !selectedIndustrySet.has(indCanon)) {
+          processedCount += 1;
+          lastProgressSnapshot = { processed: processedCount, total: totalToCheck, elapsedMs: nowMs() - t0 };
+          if (processedCount % 10 === 0 || processedCount === totalToCheck) {
+            logProgress('processing', { ...lastProgressSnapshot, apiCallsTotal, apiCallsSuccess });
+          }
+          continue;
+        }
+      }
       const score = computeCompositeScore(q);
       const aspects = computeAspectScores(q);
       results.push({ ticker: t, q, score, aspects });
     }
     processedCount += 1;
+    lastProgressSnapshot = { processed: processedCount, total: totalToCheck, elapsedMs: nowMs() - t0 };
     if (processedCount % 10 === 0 || processedCount === totalToCheck) {
-      logProgress('processing', { processed: processedCount, total: totalToCheck, elapsedMs: nowMs() - t0 });
+      logProgress('processing', { ...lastProgressSnapshot, apiCallsTotal, apiCallsSuccess });
     }
   }
   logInfo(`Eligible tickers (NASDAQ >= $${minPriceCutoff}):`, eligibleTickers.size);
@@ -491,11 +579,40 @@ async function main() {
   const scored = results.filter(r => isFinite(r.score)).sort((a,b) => b.score - a.score);
   let finalTickers = scored.map(r => r.ticker).slice(0, usingManual ? manualTickers.length : targetCount);
   logInfo('Final tickers after scoring slice:', finalTickers.length);
+  // Helper: ensure backfills respect the selected filters
+  const passesPreFilters = async (sym) => {
+    const needSector = selectedSectorSet.size > 0;
+    const needIndustry = selectedIndustrySet.size > 0;
+    if (!needSector && !needIndustry) return true;
+    const cached = qSummaryCache.get(sym);
+    const q = cached?.data || null;
+    const check = (qq) => {
+      if (!qq) return false;
+      if (needSector) {
+        const secCanon = canonicalizeSector(qq?.assetProfile?.sector || '');
+        if (!(secCanon && selectedSectorSet.has(secCanon))) return false;
+      }
+      if (needIndustry) {
+        const indCanon = canonicalizeIndustry(qq?.assetProfile?.industry || '');
+        if (!(indCanon && selectedIndustrySet.has(indCanon))) return false;
+      }
+      return true;
+    };
+    if (check(q)) return true;
+    try {
+      const q2 = await safeQuoteSummary(sym);
+      return check(q2);
+    } catch {
+      return false;
+    }
+  };
   // Backfill only when not using manual tickers
   if (!usingManual && finalTickers.length < targetCount) {
     for (const t of Array.from(eligibleTickers)) {
       if (!finalTickers.includes(t)) {
-        finalTickers.push(t);
+        if (await passesPreFilters(t)) {
+          finalTickers.push(t);
+        }
         if (finalTickers.length >= targetCount) break;
       }
     }
@@ -510,7 +627,7 @@ async function main() {
         const px = qlite?.regularMarketPrice;
         const exCodesNasdaq = new Set(['NMS','NGS','NCM']);
         const isNasdaq = fullEx.includes('nasdaq') || exCodesNasdaq.has(exCode);
-        if (isNasdaq && px != null && px >= minPriceCutoff) {
+        if (isNasdaq && px != null && px >= minPriceCutoff && await passesPreFilters(t)) {
           finalTickers.push(t);
           if (finalTickers.length >= targetCount) break;
         }
@@ -524,7 +641,7 @@ async function main() {
       if (!finalTickers.includes(sym)) {
         const exCodesNasdaq = new Set(['NMS','NGS','NCM']);
         const isNasdaq = (meta.exNameLower || '').includes('nasdaq') || exCodesNasdaq.has(meta.exCodeUpper || '');
-        if (isNasdaq && meta.price != null && meta.price >= minPriceCutoff) {
+        if (isNasdaq && meta.price != null && meta.price >= minPriceCutoff && await passesPreFilters(sym)) {
           finalTickers.push(sym);
           if (finalTickers.length >= targetCount) break;
         }
@@ -535,7 +652,9 @@ async function main() {
   if (!usingManual && !isStrict && finalTickers.length < targetCount) {
     for (const t of candidates) {
       if (!finalTickers.includes(t)) {
-        finalTickers.push(t);
+        if (await passesPreFilters(t)) {
+          finalTickers.push(t);
+        }
         if (finalTickers.length >= targetCount) break;
       }
     }
@@ -544,7 +663,9 @@ async function main() {
   if (!usingManual && !isStrict && finalTickers.length < targetCount) {
     for (const [sym] of nasdaqLight.entries()) {
       if (!finalTickers.includes(sym)) {
-        finalTickers.push(sym);
+        if (await passesPreFilters(sym)) {
+          finalTickers.push(sym);
+        }
         if (finalTickers.length >= targetCount) break;
       }
     }
@@ -789,7 +910,8 @@ async function main() {
   ensureCacheDir();
   writeJsonSafe(QUOTE_CACHE_FILE, qOut);
   writeJsonSafe(QSUMMARY_CACHE_FILE, qsOut);
-  logProgress('done', { cachedQuotes: Object.keys(qOut).length, cachedSummaries: Object.keys(qsOut).length, elapsedMs: nowMs() - t0 });
+  if (progressPulse) { try { clearInterval(progressPulse); } catch {} }
+  logProgress('done', { cachedQuotes: Object.keys(qOut).length, cachedSummaries: Object.keys(qsOut).length, elapsedMs: nowMs() - t0, apiCallsTotal, apiCallsSuccess });
 }
 // Invoke main at top-level to execute the workflow
 (async () => {

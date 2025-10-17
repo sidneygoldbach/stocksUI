@@ -24,8 +24,11 @@ const defaultConfig = {
   // new: how many stocks to rank in each Top list at the bottom of CSV
   topRankCount: 10,
   // missing-data handling (advanced)
-  excludeNa: true,
-  minFields: 4,
+  excludeNa: false,
+  minFields: 0,
+  // pré-filtros de geração
+  sectorFilters: [],
+  industryFilters: [],
 };
 
 function suggestCsv() {
@@ -54,7 +57,7 @@ const GroupCard = ({ title, children }) => (
 );
 
 const ControlPanel = (props, ref) => {
-  const [activeTab, setActiveTab] = useState('geral');
+  const [activeTab, setActiveTab] = useState(() => localStorage.getItem('active_tab') || 'geral');
   // Resultado sub-tabs (visual grouping of CSV)
   const RESULT_SUBTABS = ['Financials','Valuation','Growth','Risk','News','Outlook','Other Metrics','Composites'];
   const [resultSubtab, setResultSubtab] = useState(() => localStorage.getItem('result_subtab') || 'Financials');
@@ -62,22 +65,67 @@ const ControlPanel = (props, ref) => {
   const gridColsByGroupRef = useRef({});
   const [groupColumnDefs, setGroupColumnDefs] = useState({});
   const [initialSortByGroup, setInitialSortByGroup] = useState({});
+  const [header2State, setHeader2State] = useState([]);
   const [config, setConfig] = useState(() => {
     const saved = localStorage.getItem('analysis_config');
     const base = saved ? JSON.parse(saved) : defaultConfig;
-    return { ...base, outCsv: base.outCsv || suggestCsv(), manualTickers: base.manualTickers || Array(50).fill('') };
+    // migrate legacy single sectorFilter -> sectorFilters[]
+    const migratedSectorFilters = Array.isArray(base.sectorFilters)
+      ? base.sectorFilters
+      : (base.sectorFilter && base.sectorFilter !== 'all' ? [base.sectorFilter] : []);
+    const migratedIndustryFilters = Array.isArray(base.industryFilters) ? base.industryFilters : [];
+    return {
+      ...base,
+      outCsv: base.outCsv || suggestCsv(),
+      manualTickers: base.manualTickers || Array(50).fill(''),
+      sectorFilters: migratedSectorFilters,
+      industryFilters: migratedIndustryFilters,
+    };
   });
   const [runId, setRunId] = useState(null);
   const [status, setStatus] = useState('idle');
   const [progress, setProgress] = useState({});
   const [logs, setLogs] = useState([]);
   const logsRef = useRef(null);
+  // Auto-scroll para o fim ao receber novas linhas de log
+  useEffect(() => {
+    const el = logsRef.current;
+    if (!el) return;
+    try {
+      // usar RAF para garantir que o DOM foi pintado
+      requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight;
+      });
+    } catch {}
+  }, [logs]);
+  // Persistir aba ativa para restaurar automaticamente a última aba usada
+  useEffect(() => {
+    if (activeTab) localStorage.setItem('active_tab', activeTab);
+  }, [activeTab]);
   // estado para resultado (AG Grid)
   const [gridColumns, setGridColumns] = useState([]);
   const [gridRows, setGridRows] = useState([]);
+  const [pinnedBottomRows, setPinnedBottomRows] = useState([]);
   const [gridQuickFilter, setGridQuickFilter] = useState('');
   const gridApiRef = useRef(null);
   const gridColumnApiRef = useRef(null);
+  // Setor: coluna detectada e opções
+  const [sectorFieldId, setSectorFieldId] = useState(null);
+  const [sectorOptions, setSectorOptions] = useState([]);
+  // Lista estática de setores para pré-filtro (UI), começa com "All of them"
+  const STATIC_SECTORS = useMemo(() => ([
+    'Technology',
+    'Healthcare',
+    'Financial Services',
+    'Consumer Discretionary',
+    'Communication Services',
+    'Industrials',
+    'Consumer Staples',
+    'Energy',
+    'Utilities',
+    'Real Estate',
+    'Materials'
+  ]), []);
   // canonical group mapping for row1
   const CANONICAL_GROUPS = useMemo(() => ({
     Financials: new Set(['Financials','Financial Statements Analysis']),
@@ -128,6 +176,68 @@ const ControlPanel = (props, ref) => {
     return cat;
   };
 
+  // Recalcular TOP N ao alterar N, dados ou filtro por Setor
+  useEffect(() => {
+    try {
+      if (!header2State?.length || !gridRows?.length) { setPinnedBottomRows([]); return; }
+      const header2 = header2State;
+      // aplicar filtro por Setor (linhas visíveis) quando houver seleção
+      const rowObjs = (() => {
+        const filters = Array.isArray(config.sectorFilters) ? config.sectorFilters : [];
+        if (sectorFieldId && filters.length) {
+          const selected = new Set(filters.map(s => String(s).trim().toLowerCase()));
+          return gridRows.filter((r) => {
+            const v = r[sectorFieldId];
+            if (v == null) return false;
+            const val = String(v).trim().toLowerCase();
+            return selected.has(val);
+          });
+        }
+        return gridRows;
+      })();
+      const N = Math.max(1, Number(config.topRankCount) || 1);
+      const topPerCol = {};
+      // calcula min/max por coluna e normaliza, invertendo para métricas "lower-better"
+      for (let i = 2; i < header2.length; i++) {
+        let min = Infinity, max = -Infinity;
+        const values = [];
+        for (let r = 0; r < rowObjs.length; r++) {
+          const raw = rowObjs[r][`c${i}`];
+          if (raw == null || raw === '') continue;
+          let s = String(raw).trim();
+          s = s.replace(/%$/, '');
+          const num = Number(s);
+          if (Number.isFinite(num)) {
+            values.push({ r, num });
+            if (num < min) min = num;
+            if (num > max) max = num;
+          }
+        }
+        const lowerBetter = /lower-better/i.test(String(header2[i] || ''));
+        const scores = [];
+        for (const { r, num } of values) {
+          let norm = 0;
+          if (max > min) norm = (num - min) / (max - min);
+          else norm = 0; // todos iguais
+          if (lowerBetter) norm = 1 - norm;
+          const tk = String(rowObjs[r]['c1'] || '').trim();
+          scores.push({ tk, v: norm });
+        }
+        scores.sort((a, b) => b.v - a.v);
+        topPerCol[i] = scores.slice(0, N).map(s => s.tk);
+      }
+      const pinned = [];
+      for (let k = 0; k < N; k++) {
+        const prow = { c0: `top #${k + 1}` };
+        for (let i = 2; i < header2.length; i++) {
+          prow[`c${i}`] = (topPerCol[i] && topPerCol[i][k]) ? topPerCol[i][k] : '';
+        }
+        pinned.push(prow);
+      }
+      setPinnedBottomRows(pinned);
+    } catch {}
+  }, [config.topRankCount, gridRows, header2State, sectorFieldId, config.sectorFilters]);
+
   // Helpers para construir colunas com auto-size baseado em dados
   const isNumeric = (val) => {
     if (val === null || val === undefined) return false;
@@ -176,13 +286,34 @@ const ControlPanel = (props, ref) => {
       }
       const header1 = rows[0];
       const header2 = rows[1];
-      const dataRows = rows.slice(3);
+      const dataRowsRaw = rows.slice(3);
+      // Remover linhas 'Top_*' verticais indevidas do final do CSV
+      const dataRows = dataRowsRaw.filter((arr) => !(arr && String(arr[0] || '').startsWith('Top_')));
       const cols = buildColumnDefs(header2, dataRows, header1);
       const rowObjs = dataRows.map((arr) => {
         const o = {};
         for (let i=0;i<cols.length;i++) o[`c${i}`] = arr[i] ?? '';
         return o;
       });
+      setHeader2State(header2);
+      // detectar coluna de setor e coletar opções (suporta 'Sector', 'GICS Sector', 'Industry')
+      const norm = (s) => String(s || '').trim().toLowerCase();
+      const sectorIdxPrimary = header2.findIndex((h2) => /sector/.test(norm(h2)) || /gics/.test(norm(h2)));
+      const sectorIdxFallback = header2.findIndex((h2) => /industry/.test(norm(h2)) || /segment/.test(norm(h2)));
+      const sectorIdx = sectorIdxPrimary >= 0 ? sectorIdxPrimary : sectorIdxFallback;
+      if (sectorIdx >= 0) {
+        const fieldId = `c${sectorIdx}`;
+        setSectorFieldId(fieldId);
+        const optsSet = new Set();
+        for (const r of rowObjs) {
+          const v = String(r[fieldId] || '').trim();
+          if (v) optsSet.add(v);
+        }
+        setSectorOptions(Array.from(optsSet).sort((a,b)=>a.localeCompare(b)));
+      } else {
+        setSectorFieldId(null);
+        setSectorOptions([]);
+      }
       // mapeamento dos grupos por coluna (linha 1) com faixa contínua
       const groupIndices = {};
       let currentCanon = '';
@@ -285,6 +416,31 @@ const ControlPanel = (props, ref) => {
       }
       setGridColumns(cols);
       setGridRows(rowObjs);
+      // Construir linhas inferiores fixas (pinned) com Top N por coluna
+      try {
+        const N = Math.max(1, Number(config.topRankCount) || 1);
+        const topPerCol = {};
+        for (let i=2;i<header2.length;i++) {
+          const scores = [];
+          for (let r=0;r<rowObjs.length;r++) {
+            const vNorm = normalizeAt(i, rowObjs[r][`c${i}`]);
+            if (vNorm == null) continue;
+            const tk = String(rowObjs[r]['c1'] || '').trim();
+            scores.push({ tk, v: vNorm });
+          }
+          scores.sort((a,b) => b.v - a.v);
+          topPerCol[i] = scores.slice(0, N).map(s => s.tk);
+        }
+        const pinned = [];
+        for (let k=0;k<N;k++) {
+          const prow = { c0: `top #${k+1}` };
+          for (let i=2;i<header2.length;i++) {
+            prow[`c${i}`] = (topPerCol[i] && topPerCol[i][k]) ? topPerCol[i][k] : '';
+          }
+          pinned.push(prow);
+        }
+        setPinnedBottomRows(pinned);
+      } catch {}
       // construir colunas por grupo para sub-abas
       const nameTickerPinned = [
         {
@@ -409,6 +565,28 @@ const ControlPanel = (props, ref) => {
     }
   }, [logs]);
 
+  // Garantir que os setores selecionados existam nas opções atuais (filtro de exibição)
+  useEffect(() => {
+    if (sectorOptions.length && Array.isArray(config?.sectorFilters)) {
+      const filtered = config.sectorFilters.filter((s) => sectorOptions.includes(s));
+      if (filtered.length !== config.sectorFilters.length) {
+        setConfig((c) => ({ ...c, sectorFilters: filtered }));
+      }
+    }
+  }, [sectorOptions]);
+
+  // Linhas visíveis conforme filtro por setor
+  const visibleRows = useMemo(() => {
+    const selected = (config?.sectorFilters || []).map((s) => String(s).trim().toLowerCase());
+    if (!sectorFieldId || selected.length === 0) return gridRows;
+    return gridRows.filter((r) => {
+      const v = r[sectorFieldId];
+      if (v == null) return false;
+      const val = String(v).trim().toLowerCase();
+      return selected.includes(val);
+    });
+  }, [gridRows, sectorFieldId, config?.sectorFilters]);
+
   const resetConfig = () => {
     const next = { ...defaultConfig, outCsv: suggestCsv(), manualTickers: Array(50).fill('') };
     setConfig(next);
@@ -419,7 +597,10 @@ const ControlPanel = (props, ref) => {
     setStatus('starting');
     // Ir para a aba de Progresso durante a execução
     setActiveTab('progresso');
-    setLogs((l) => [...l, 'Iniciando análise...']);
+    const newCsvName = suggestCsv();
+    // Atualiza nome do arquivo com data/hora a cada início
+    setConfig((prev) => ({ ...prev, outCsv: newCsvName }));
+    setLogs((l) => [...l, 'Iniciando análise...', `Arquivo de saída definido: ${newCsvName}`]);
     const resp = await fetch('/api/run-analysis', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -432,7 +613,7 @@ const ControlPanel = (props, ref) => {
         backoffMaxMs: Number(config.backoffMaxMs),
         cooldownThreshold: Number(config.cooldownThreshold),
         cooldownMs: Number(config.cooldownMs),
-        outCsv: config.outCsv,
+        outCsv: newCsvName,
         targetCount: Number(config.targetCount),
         minPriceCutoff: Number(String(config.minPriceCutoff).replace(',', '.')),
         // pass advanced toggles
@@ -445,6 +626,9 @@ const ControlPanel = (props, ref) => {
         // missing-data handling to backend
         excludeNa: !!config.excludeNa,
         minFields: Number(config.minFields),
+        // pré-filtros: setores e indústrias (vazios = All of them)
+        sectorFilters: Array.isArray(config.sectorFilters) ? config.sectorFilters : [],
+        industryFilters: Array.isArray(config.industryFilters) ? config.industryFilters : [],
       })
     });
     const data = await resp.json();
@@ -488,16 +672,21 @@ const ControlPanel = (props, ref) => {
   }, [progress, status]);
 
   const etaText = useMemo(() => {
-    if (progress.type === 'processing' && progress.total && progress.processed) {
-      const rate = progress.processed / Math.max(1, (progress.elapsedMs || 1000));
-      const remaining = progress.total - progress.processed;
-      const estMs = remaining / Math.max(0.0001, rate) * 1000;
-      const mins = Math.floor(estMs / 60000);
-      const secs = Math.round((estMs % 60000) / 1000);
-      return `${mins}m ${secs}s`;
+    if (status === 'done') return 'Concluído';
+    if (progress.type === 'processing' && progress.total) {
+      if (progress.processed >= progress.total) return 'Concluído';
+      if (progress.processed) {
+        const elapsedSec = Math.max(1, Math.round((progress.elapsedMs || 0) / 1000));
+        const ratePerSec = progress.processed / elapsedSec; // itens por segundo
+        const remaining = Math.max(0, progress.total - progress.processed);
+        const etaSec = Math.ceil(remaining / Math.max(0.0001, ratePerSec));
+        const mins = Math.floor(etaSec / 60);
+        const secs = etaSec % 60;
+        return `${mins}m ${secs}s`;
+      }
     }
     return 'Calculando...';
-  }, [progress]);
+  }, [progress, status]);
 
   return (
     <div className="p-6 space-y-6 bg-white">
@@ -550,6 +739,60 @@ const ControlPanel = (props, ref) => {
                 placeholder="5.00"
               />
               <p className="text-gray-600 text-xs mt-1">Valor de corte para excluir penny stocks (atual: {typeof config.minPriceCutoff === 'number' ? config.minPriceCutoff.toFixed(2) : '5.00'}). Aceita centavos.</p>
+            </div>
+            {/* Filtro por Setor (pré-análise, multi-seleção) */}
+            <div className="text-sm md:col-span-3">
+              <label className="block font-medium mb-1">Filtrar por Setor (multi)</label>
+              <div className="flex flex-col gap-2 p-2 border rounded-md w-[320px] max-w-full">
+                <div className="flex flex-wrap gap-3">
+                  {STATIC_SECTORS.map((s) => {
+                    const checked = (config.sectorFilters || []).includes(s);
+                    return (
+                      <label key={s} className="inline-flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            const prev = new Set(config.sectorFilters || []);
+                            if (e.target.checked) prev.add(s); else prev.delete(s);
+                            setConfig({ ...config, sectorFilters: Array.from(prev) });
+                          }}
+                        />
+                        {s}
+                      </label>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    className="px-2 py-1 text-xs rounded bg-gray-100 hover:bg-gray-200"
+                    onClick={() => setConfig({ ...config, sectorFilters: [] })}
+                  >
+                    Clear selection (All of them)
+                  </button>
+                </div>
+              </div>
+              <p className="text-gray-600 text-xs mt-1">
+                Aplica-se antes de gerar: só inclui tickers dos setores marcados. Sem seleção = All of them (sem filtro).
+              </p>
+            </div>
+            {/* Filtro por Indústria (pré-análise) */}
+            <div className="text-sm md:col-span-3">
+              <label className="block font-medium mb-1">Filtrar por Indústria</label>
+              <input
+                type="text"
+                placeholder="Ex.: Semiconductors, Software Infrastructure, Banks"
+                value={(config.industryFilters || []).join(', ')}
+                onChange={(e) => {
+                  const arr = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
+                  setConfig({ ...config, industryFilters: arr });
+                }}
+                className="w-[360px] max-w-full p-2 rounded-md border"
+              />
+              <p className="text-gray-600 text-xs mt-1">
+                Aplica-se antes de gerar: mantém apenas indústrias informadas (case-insensitive). Vazio = All of them.
+              </p>
             </div>
             {/* new: top rank count input */}
             <div className="text-sm md:col-span-3">
@@ -679,10 +922,44 @@ const ControlPanel = (props, ref) => {
         <>
           <GroupCard title="Progresso da Geração">
             <div className="space-y-3">
-              <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden">
-                <div className="h-full bg-blue-600" style={{ width: `${progressPct}%` }} />
+              <div className="relative w-full h-5 bg-gray-200 rounded-full overflow-hidden">
+                <div className="absolute left-0 top-0 h-full bg-blue-600 transition-[width]" style={{ width: `${progressPct}%` }} />
+                <div className="absolute inset-0 flex items-center justify-center text-xs font-medium text-gray-900">
+                  {progressPct}%
+                </div>
               </div>
-              <div className="text-sm text-gray-700">ETA: {etaText}</div>
+              <div className="flex items-center justify-between text-sm text-gray-700">
+                <div>
+                  ETA: {etaText}
+                  {progress?.type === 'processing' && progress?.total ? (
+                    <span>
+                      {' '}• Progresso: {Number(progress?.processed || 0)} / {Number(progress?.total || 0)} ({progressPct}%)
+                      {' '}• Ritmo: {(() => {
+                        const elapsedSec = Math.max(1, Math.round((progress?.elapsedMs || 0) / 1000));
+                        const ratePerSec = Number(progress?.processed || 0) / elapsedSec;
+                        return `${ratePerSec.toFixed(2)} itens/s`;
+                      })()}
+                      {' '}• Decorrido: {(() => {
+                        const elapsedSec = Math.max(0, Math.round((progress?.elapsedMs || 0) / 1000));
+                        const mins = Math.floor(elapsedSec / 60);
+                        const secs = elapsedSec % 60;
+                        return `${mins}m ${secs}s`;
+                      })()}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-blue-200 bg-blue-50 text-blue-700">
+                    Chamadas: {Number(progress?.apiCallsTotal || 0)}
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-green-200 bg-green-50 text-green-700">
+                    Sucesso: {Number(progress?.apiCallsSuccess || 0)}
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-red-200 bg-red-50 text-red-700">
+                    Falhas: {Math.max(0, Number(progress?.apiCallsTotal || 0) - Number(progress?.apiCallsSuccess || 0))}
+                  </span>
+                </div>
+              </div>
               {status === 'done' && runId && (
                 <a href={`/api/download/${runId}`} className="inline-block px-3 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium">
                   Baixar CSV
@@ -692,7 +969,14 @@ const ControlPanel = (props, ref) => {
           </GroupCard>
 
           <GroupCard title="Etapas, Consultas e Resultados">
-            <div ref={logsRef} className="h-64 overflow-y-auto bg-white rounded-md border p-3 text-sm">
+            <div
+              ref={logsRef}
+              className="overflow-auto overscroll-contain bg-white rounded-md border p-3 text-sm w-full"
+              style={{ height: '40vh' }}
+            >
+              <div className="sticky top-0 z-10 bg-gray-50 border-b py-1 px-2 text-xs text-gray-600">
+                Logs (auto-scroll)
+              </div>
               {logs.map((line, idx) => (
                 <div key={idx} className="py-0.5">{line}</div>
               ))}
@@ -753,11 +1037,12 @@ const ControlPanel = (props, ref) => {
             </div>
             <div className="ag-theme-alpine" style={{ height: '70vh', width: '100%' }}>
               <AgGridReact
-                rowData={gridRows}
+                rowData={visibleRows}
                 columnDefs={groupColumnDefs[resultSubtab] || []}
                 defaultColDef={{ resizable: true, filter: true, floatingFilter: true }}
                 animateRows={true}
                 suppressBrowserResizeObserver={true}
+                pinnedBottomRowData={pinnedBottomRows}
                 onFirstDataRendered={(params)=>{
                   try {
                     const sortField = initialSortByGroup[resultSubtab];
