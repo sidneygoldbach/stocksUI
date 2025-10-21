@@ -8,6 +8,11 @@ const nasdaqLight = new Map(); // symbol -> { exNameLower, exCodeUpper, price }
 // Contadores globais de chamadas à API e sucessos
 let apiCallsTotal = 0;
 let apiCallsSuccess = 0;
+// Separação de falhas esperadas de paginação vs outras
+let apiCallsScreenerFail = 0;
+let apiCallsOtherFail = 0;
+// Marcação de tickers vindos de fallback
+const fallbackSymbols = new Set();
 
 // Parse CLI arguments for runtime behavior flags
 const args = process.argv.slice(2);
@@ -55,14 +60,26 @@ const minPriceCutoff = getArgNum('--min-price-cutoff', 5.00);
 // New control flags for handling missing data
 const excludeNa = getArgBoolStrict('--exclude-na', false);
 const minFields = getArgNum('--min-fields', 0);
+// Novos controles de eficiência
+const noFallback = getArgBoolStrict('--no-fallback', false);
+const maxScreenerPages = getArgNum('--max-screener-pages', 3);
 // New flags for UI integration
 const outCsvPath = (() => { const entry = args.find(s => s.startsWith('--out-csv=')); return entry ? entry.split('=')[1] : `./Comprehensive_${targetCount}_Stock_Analysis.csv`; })();
 const manualTickersArg = (() => { const entry = args.find(s => s.startsWith('--manual-tickers=')); return entry ? entry.split('=')[1] : ''; })();
 const manualTickers = manualTickersArg ? manualTickersArg.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean).slice(0,50) : [];
+// New: allow skipping problematic tickers
+const skipTickersArg = (() => { const entry = args.find(s => s.startsWith('--skip-tickers=')); return entry ? entry.split('=')[1] : ''; })();
+const skipTickersSet = new Set((skipTickersArg || '').split(',').map(s=>s.trim().toUpperCase()).filter(Boolean));
 // New: Sector/Industry pre-filters from UI
 const sectorFilterArg = (() => { const entry = args.find(s => s.startsWith('--sector-filter=')); return entry ? entry.split('=')[1] : 'all'; })();
 const sectorFiltersArg = (() => { const entry = args.find(s => s.startsWith('--sector-filters=')); return entry ? entry.split('=')[1] : ''; })();
 const industryFiltersArg = (() => { const entry = args.find(s => s.startsWith('--industry-filters=')); return entry ? entry.split('=')[1] : ''; })();
+// New: debug ticker and per-ticker timeout controls
+const debugTickerArg = (() => {
+  const entry = args.find(s => s.startsWith('--debug-ticker='));
+  return entry ? entry.split('=')[1].trim().toUpperCase() : '';
+})();
+const tickerTimeoutMs = getArgNum('--ticker-timeout-ms', 20000);
 const sectorSynonyms = new Map([
   ['all','all'], ['all of them','all'],
   ['technology','technology'], ['information technology','technology'], ['tech','technology'],
@@ -111,13 +128,26 @@ const logInfo = (...a) => { if (!isQuiet) console.log(...a); };
 const logWarn = (...a) => { if (!isQuiet) console.warn(...a); };
 const logError = (...a) => { if (!isQuiet) console.error(...a); };
 const logProgress = (type, payload = {}) => { if (emitProgress) { try { console.log('PROGRESS:', JSON.stringify({ type, ...payload })); } catch {} } };
+// Log de próximo ticker em tempo real
+const LOG_FILE = './LOG.TXT';
+function logNextTicker(sym) {
+  if (!sym) return;
+  try {
+    const stamp = new Date().toISOString();
+    fs.appendFileSync(LOG_FILE, `${stamp} ${String(sym)}\n`);
+  } catch {}
+}
 // Snapshot para emissão periódica de progresso com contadores de API
-let lastProgressSnapshot = { processed: 0, total: 0, elapsedMs: 0 };
+let lastProgressSnapshot = { processed: 0, total: 0, elapsedMs: 0, currentTicker: null };
+// Track start time to compute dynamic elapsed during stalls
+let progressStartMs = null;
 let progressPulse = null;
+let currentTicker = null;
 if (emitProgress) {
   try {
     progressPulse = setInterval(() => {
-      logProgress('processing', { ...lastProgressSnapshot, apiCallsTotal, apiCallsSuccess });
+      const elapsedDyn = progressStartMs ? (nowMs() - progressStartMs) : lastProgressSnapshot.elapsedMs;
+      logProgress('processing', { ...lastProgressSnapshot, elapsedMs: elapsedDyn, currentTicker, apiCallsTotal, apiCallsSuccess, apiCallsScreenerFail, apiCallsOtherFail });
     }, 750);
   } catch {}
 }
@@ -193,6 +223,25 @@ const isHtmlError = (err) => {
   return msg.includes('Unexpected token <') || msg.includes('<!DOCTYPE');
 };
 
+// NEW: safer timeout wrapper that never rejeita; retorna null no timeout/erro
+async function withTimeout(promise, ms, label = 'op') {
+  try {
+    let timer;
+    const timeoutPromise = new Promise((resolve) => {
+      timer = setTimeout(() => {
+        logWarn(`Timeout ${label} after ${ms}ms`);
+        resolve(null);
+      }, ms);
+    });
+    const result = await Promise.race([promise, timeoutPromise]);
+    if (timer) clearTimeout(timer);
+    return result;
+  } catch (e) {
+    logError(`withTimeout(${label}) error:`, e?.message || e);
+    return null;
+  }
+}
+
 async function safeQuoteSummary(ticker) {
   // Cache first
   if (qSummaryCache.has(ticker)) {
@@ -240,6 +289,7 @@ async function safeQuote(ticker) {
     const cached = quoteCache.get(ticker);
     if (cached?.data && isFresh(cached.ts, cacheTtlHours)) return cached.data;
   }
+  if (ticker === debugTickerArg) logWarn('DBG quote start', ticker);
   const maxAttempts = 5;
   let delay = 0;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -259,10 +309,18 @@ async function safeQuote(ticker) {
       consecutiveFailures = 0;
       const entry = { ts: nowMs(), data: res };
       quoteCache.set(ticker, entry);
+      if (ticker === debugTickerArg) {
+        try {
+          const px = res?.regularMarketPrice;
+          const ex = (res?.fullExchangeName || '').toLowerCase();
+          logWarn('DBG quote success', ticker, 'price', px, 'ex', ex);
+        } catch {}
+      }
       return res;
     } catch (e) {
       const htmlFail = isHtmlError(e);
       logError(`Quote error [${attempt}/${maxAttempts}] for ${ticker}:`, e?.message || e);
+      if (ticker === debugTickerArg) logWarn('DBG quote error', ticker, 'attempt', attempt, 'msg', e?.message || e);
       consecutiveFailures += 1;
       if (consecutiveFailures >= cooldownThresholdScaled) {
         logWarn(`Too many consecutive failures, cooling down for ${cooldownMsScaled}ms`);
@@ -279,6 +337,29 @@ async function safeQuote(ticker) {
 }
 
 function isValidNumber(v) { return v != null && Number.isFinite(Number(v)); }
+
+// Compute FCF-related metrics for Extras block
+function computeFcfMargins(q) {
+  try {
+    const fd = q?.financialData || {};
+    const ks = q?.defaultKeyStatistics || {};
+    const price = q?.price || {};
+    const fcf = Number(fd.freeCashflow);
+    const revenue = Number(fd.totalRevenue);
+    const fcfMargin = (Number.isFinite(fcf) && Number.isFinite(revenue) && revenue !== 0) ? (fcf / revenue) : null;
+    const marketCap = Number(price.marketCap ?? ks.marketCap);
+    const enterpriseValue = Number(ks.enterpriseValue ?? fd.enterpriseValue);
+    const denom = (Number.isFinite(marketCap) && marketCap > 0) ? marketCap : ((Number.isFinite(enterpriseValue) && enterpriseValue > 0) ? enterpriseValue : null);
+    const fcfYield = (Number.isFinite(fcf) && denom && denom > 0) ? (fcf / denom) : null;
+    const roic = isValidNumber(fd.returnOnEquity) ? Number(fd.returnOnEquity) : (isValidNumber(fd.returnOnAssets) ? Number(fd.returnOnAssets) : null);
+    const ebit = Number(fd.ebitda ?? fd.ebit);
+    const interestExpense = Number(fd.interestExpense ?? fd.interestExpense);
+    const interestCoverage = (Number.isFinite(ebit) && Number.isFinite(interestExpense) && interestExpense !== 0) ? (ebit / Math.abs(interestExpense)) : null;
+    return { fcfMargin, fcfYield, roic, interestCoverage };
+  } catch {
+    return { fcfMargin: null, fcfYield: null, roic: null, interestCoverage: null };
+  }
+}
 
 function computeCompositeScore(q) {
   if (!q) return -Infinity;
@@ -395,7 +476,8 @@ async function getNasdaqCandidates() {
   const scrIds = ['most_actives','day_gainers','day_losers','undervalued_large_caps','undervalued_growth_stocks','small_cap_gainers','aggressive_small_caps','most_shorted_stocks','portfolio_anchors','solid_large_growth_funds','solid_midcap_growth_funds'];
   const symbols = new Set();
   for (const id of scrIds) {
-    for (const offset of [0, 100, 200, 300, 400, 500, 600, 700, 800, 900]) {
+    for (let page = 0; page < maxScreenerPages; page += 1) {
+      const offset = page * 100;
       try {
         apiCallsTotal += 1;
         const resp = await yf.screener({ scrIds: id, count: 100, offset }, undefined, {
@@ -413,7 +495,7 @@ async function getNasdaqCandidates() {
             nasdaqLight.set(q.symbol, { exNameLower, exCodeUpper, price });
           }
         }
-      } catch (e) { logError('screener error', id, 'offset', offset, e?.message || e); }
+      } catch (e) { apiCallsScreenerFail += 1; logError('screener error', id, 'offset', offset, e?.message || e); }
       await sleepJitter();
     }
   }
@@ -435,41 +517,41 @@ async function getNasdaqCandidates() {
         nasdaqLight.set(sym, { exNameLower, exCodeUpper, price });
       }
     }
-  } catch (e) { logError('trending error', e?.message || e); }
+  } catch (e) { apiCallsOtherFail += 1; logError('trending error', e?.message || e); }
   // slight pause after trending
   await sleepJitter();
   // Fallback: harvest existing CSV tickers if present
   try {
     const path = './Comprehensive_153_Stock_Analysis.csv';
-    if (fs.existsSync(path)) {
+    if (!noFallback && fs.existsSync(path)) {
       const data = fs.readFileSync(path, 'utf8');
       const lines = data.split(/\r?\n/).slice(1); // skip header
       for (const line of lines) {
         if (!line || line.startsWith('Top10_')) break;
         const parts = line.split(',');
         const sym = parts[1]?.replace(/^\"|\"$/g, ''); // second column is ticker
-        if (sym) symbols.add(sym);
+        if (sym) { symbols.add(sym); fallbackSymbols.add(sym); }
       }
     }
   } catch (e) { logWarn('fallback csv read error', e?.message || e); }
   try {
     const path2 = `./Comprehensive_${targetCount}_Stock_Analysis.csv`;
-    if (fs.existsSync(path2)) {
+    if (!noFallback && fs.existsSync(path2)) {
       const data2 = fs.readFileSync(path2, 'utf8');
       const lines2 = data2.split(/\r?\n/).slice(1);
       for (const line of lines2) {
         if (!line || line.startsWith('Top10_')) break;
         const parts2 = line.split(',');
         const sym2 = parts2[1]?.replace(/^\"|\"$/g, '');
-        if (sym2) symbols.add(sym2);
+        if (sym2) { symbols.add(sym2); fallbackSymbols.add(sym2); }
       }
     }
   } catch (e) { logWarn('fallback csv2 read error', e?.message || e); }
 
-  if (symbols.size < 500) {
+  if (!noFallback && symbols.size < 500) {
     [
       'AAPL','MSFT','NVDA','AMZN','META','GOOGL','GOOG','AVGO','COST','ADBE','PEP','NFLX','INTC','CSCO','AMD','QCOM','TXN','AMAT','PDD','PYPL','SBUX','TMUS','AMGN','MDLZ','GILD','MU','ADI','KLAC','LRCX','REGN','VRTX','MRVL','PANW','FTNT','CDNS','SNPS','ORLY','IDXX','NXPI','ROP','MNST','MELI','EA','CTAS','ROST','CRWD','ADSK','CDW','ODFL','PCAR','XEL','CHTR','CTSH','ALGN','TTWO','EXC','PAYX','VRSK','SNOW','TTD','DOCU','OKTA','ZS','DDOG','NTES','BIDU','NTNX','FSLR','EPAM','LKQ','DASH','BKR','BLDR','RIVN','LCID','ABNB','LULU','MRNA','BMY','GFS','A','PTC','TER','HBAN','UAL','DAL','AAL','EXPE','CHKP','ALNY','SFM','WBA','FAST','NTRS','ZBRA','AXON','CELH','PLTR','SMCI','NVCR','SPLK','ANSS','MCHP','MPWR','QRVO','SWKS','MTCH','KDP','SIRI','INTU','GEHC','VRSN','BIIB','EXAS','PENN','PCTY','SGEN','INO','NVAX','RGEN','MNKD'
-    ].forEach(s => symbols.add(s));
+    ].forEach(s => { symbols.add(s); fallbackSymbols.add(s); });
   }
   return Array.from(symbols);
 }
@@ -480,14 +562,33 @@ async function main() {
   logInfo('Candidates discovered:', candidates.length);
   logProgress('candidates', { count: candidates.length, manual: usingManual });
   const t0 = nowMs();
+  progressStartMs = t0;
   const tickersSet = new Set([...(usingManual ? manualTickers : baseTickers), ...candidates]);
+  const tickers = Array.from(tickersSet);
   const results = [];
   const eligibleTickers = new Set();
   const exCodesNasdaq = new Set(['NMS','NGS','NCM']);
-  const totalToCheck = tickersSet.size;
+  const totalToCheck = tickers.length;
   let processedCount = 0;
-  lastProgressSnapshot = { processed: 0, total: totalToCheck, elapsedMs: 0 };
-  for (const t of tickersSet) {
+  lastProgressSnapshot = { processed: 0, total: totalToCheck, elapsedMs: 0, currentTicker: null };
+  for (let i = 0; i < tickers.length; i += 1) {
+    const t = tickers[i];
+    const next = (i + 1) < tickers.length ? tickers[i + 1] : null;
+    // Skip tickers explicitly listed (case-insensitive), do it before any work
+    const tUpper = String(t).trim().toUpperCase();
+    if (skipTickersSet.has(tUpper)) {
+      processedCount += 1;
+      lastProgressSnapshot = { processed: processedCount, total: totalToCheck, elapsedMs: nowMs() - t0, currentTicker: `skipped:${t}` };
+      logProgress('processing', { ...lastProgressSnapshot, apiCallsTotal, apiCallsSuccess, apiCallsScreenerFail, apiCallsOtherFail });
+      if (t === debugTickerArg) logWarn('DBG skipped ticker', t, 'index', i);
+      currentTicker = next;
+      lastProgressSnapshot.currentTicker = next;
+      logNextTicker(next);
+      continue;
+    }
+    currentTicker = t;
+    lastProgressSnapshot.currentTicker = t;
+    if (t === debugTickerArg) logWarn('DBG begin ticker', t, 'index', i);
     await sleepJitter();
     // Aggressive local reuse: derive eligibility from nasdaqLight or disk/in-memory caches first
     let exNameLower = nasdaqLight.get(t)?.exNameLower || '';
@@ -517,14 +618,14 @@ async function main() {
       // If eligibility unknown (no local meta), do a lightweight quote check once
       const needsCheck = (!exNameLower && px == null);
       if (needsCheck) {
-        const qlite = await safeQuote(t);
+        const qlite = await withTimeout(safeQuote(t), Math.max(10000, Math.floor(tickerTimeoutMs * 0.5)), `safeQuote:${t}`);
         exNameLower = (qlite?.fullExchangeName || '').toLowerCase();
         exCodeUpper = (qlite?.exchange || '').toUpperCase();
         px = qlite?.regularMarketPrice;
         isNasdaq = exNameLower.includes('nasdaq') || exCodesNasdaq.has(exCodeUpper);
-        if (!isNasdaq || !(px != null && px >= minPriceCutoff)) continue;
+        if (!isNasdaq || !(px != null && px >= minPriceCutoff)) { logNextTicker(next); continue; }
       } else {
-        continue;
+        logNextTicker(next); continue;
       }
     }
 
@@ -536,7 +637,7 @@ async function main() {
     if (cachedSummary?.data && isFresh(cachedSummary.ts, cacheTtlHours)) {
       q = cachedSummary.data;
     } else {
-      q = await safeQuoteSummary(t);
+      q = await withTimeout(safeQuoteSummary(t), Math.max(15000, Math.floor(tickerTimeoutMs * 0.75)), `quoteSummary:${t}`);
     }
 
     if (q) {
@@ -545,10 +646,9 @@ async function main() {
         const secCanon = canonicalizeSector(q?.assetProfile?.sector || '');
         if (!secCanon || !selectedSectorSet.has(secCanon)) {
           processedCount += 1;
-          lastProgressSnapshot = { processed: processedCount, total: totalToCheck, elapsedMs: nowMs() - t0 };
-          if (processedCount % 10 === 0 || processedCount === totalToCheck) {
-            logProgress('processing', { ...lastProgressSnapshot, apiCallsTotal, apiCallsSuccess });
-          }
+          lastProgressSnapshot = { processed: processedCount, total: totalToCheck, elapsedMs: nowMs() - t0, currentTicker };
+          logProgress('processing', { ...lastProgressSnapshot, apiCallsTotal, apiCallsSuccess, apiCallsScreenerFail, apiCallsOtherFail });
+          logNextTicker(next);
           continue;
         }
       }
@@ -556,10 +656,9 @@ async function main() {
         const indCanon = canonicalizeIndustry(q?.assetProfile?.industry || '');
         if (!indCanon || !selectedIndustrySet.has(indCanon)) {
           processedCount += 1;
-          lastProgressSnapshot = { processed: processedCount, total: totalToCheck, elapsedMs: nowMs() - t0 };
-          if (processedCount % 10 === 0 || processedCount === totalToCheck) {
-            logProgress('processing', { ...lastProgressSnapshot, apiCallsTotal, apiCallsSuccess });
-          }
+          lastProgressSnapshot = { processed: processedCount, total: totalToCheck, elapsedMs: nowMs() - t0, currentTicker };
+          logProgress('processing', { ...lastProgressSnapshot, apiCallsTotal, apiCallsSuccess, apiCallsScreenerFail, apiCallsOtherFail });
+          logNextTicker(next);
           continue;
         }
       }
@@ -568,10 +667,9 @@ async function main() {
       results.push({ ticker: t, q, score, aspects });
     }
     processedCount += 1;
-    lastProgressSnapshot = { processed: processedCount, total: totalToCheck, elapsedMs: nowMs() - t0 };
-    if (processedCount % 10 === 0 || processedCount === totalToCheck) {
-      logProgress('processing', { ...lastProgressSnapshot, apiCallsTotal, apiCallsSuccess });
-    }
+    lastProgressSnapshot = { processed: processedCount, total: totalToCheck, elapsedMs: nowMs() - t0, currentTicker };
+    logProgress('processing', { ...lastProgressSnapshot, apiCallsTotal, apiCallsSuccess, apiCallsScreenerFail, apiCallsOtherFail });
+    logNextTicker(next);
   }
   logInfo(`Eligible tickers (NASDAQ >= $${minPriceCutoff}):`, eligibleTickers.size);
   logInfo('Scored tickers:', results.length);
@@ -609,6 +707,7 @@ async function main() {
   // Backfill only when not using manual tickers
   if (!usingManual && finalTickers.length < targetCount) {
     for (const t of Array.from(eligibleTickers)) {
+      if (skipTickersSet.has(t)) continue;
       if (!finalTickers.includes(t)) {
         if (await passesPreFilters(t)) {
           finalTickers.push(t);
@@ -620,8 +719,9 @@ async function main() {
   }
   if (!usingManual && finalTickers.length < targetCount) {
     for (const t of candidates) {
+      if (skipTickersSet.has(String(t).trim().toUpperCase())) continue;
       if (!finalTickers.includes(t)) {
-        const qlite = await safeQuote(t);
+        const qlite = await withTimeout(safeQuote(t), Math.max(10000, Math.floor(tickerTimeoutMs * 0.5)), `safeQuote:${t}`);
         const fullEx = (qlite?.fullExchangeName || '').toLowerCase();
         const exCode = (qlite?.exchange || '').toUpperCase();
         const px = qlite?.regularMarketPrice;
@@ -638,6 +738,7 @@ async function main() {
   }
   if (!usingManual && finalTickers.length < targetCount) {
     for (const [sym, meta] of nasdaqLight.entries()) {
+      if (skipTickersSet.has(String(sym).trim().toUpperCase())) continue;
       if (!finalTickers.includes(sym)) {
         const exCodesNasdaq = new Set(['NMS','NGS','NCM']);
         const isNasdaq = (meta.exNameLower || '').includes('nasdaq') || exCodesNasdaq.has(meta.exCodeUpper || '');
@@ -651,6 +752,7 @@ async function main() {
   }
   if (!usingManual && !isStrict && finalTickers.length < targetCount) {
     for (const t of candidates) {
+      if (skipTickersSet.has(String(t).trim().toUpperCase())) continue;
       if (!finalTickers.includes(t)) {
         if (await passesPreFilters(t)) {
           finalTickers.push(t);
@@ -662,6 +764,7 @@ async function main() {
   }
   if (!usingManual && !isStrict && finalTickers.length < targetCount) {
     for (const [sym] of nasdaqLight.entries()) {
+      if (skipTickersSet.has(sym)) continue;
       if (!finalTickers.includes(sym)) {
         if (await passesPreFilters(sym)) {
           finalTickers.push(sym);
@@ -764,15 +867,20 @@ async function main() {
 
   for (const t of finalTickers) {
     const r = results.find(x => x.ticker === t);
-    const name = r?.q?.price?.longName || r?.q?.price?.shortName || t;
-    const priceObj = r?.q?.price || {}; const fd = r?.q?.financialData || {}; const sd = r?.q?.summaryDetail || {}; const ks = r?.q?.defaultKeyStatistics || {};
-    const marketCap = isValidNumber(priceObj.marketCap) ? Number(priceObj.marketCap) : (isValidNumber(ks.marketCap) ? Number(ks.marketCap) : null);
-    const fcfMarginVal = (isValidNumber(fd.freeCashflow) && isValidNumber(fd.totalRevenue) && Number(fd.totalRevenue) !== 0) ? Number(fd.freeCashflow) / Number(fd.totalRevenue) : null;
-    const fcfYield = (isValidNumber(fd.freeCashflow) && isValidNumber(marketCap) && Number(marketCap) !== 0) ? Number(fd.freeCashflow) / Number(marketCap) : '';
-    const roic = (isValidNumber(fd.returnOnAssets)) ? fd.returnOnAssets : (isValidNumber(fd.returnOnEquity) ? fd.returnOnEquity : '');
-    const interestCoverage = (isValidNumber(fd.interestCoverage)) ? fd.interestCoverage : '';
+    const name = (r?.q?.price?.longName || r?.q?.price?.shortName || r?.q?.price?.symbol || t);
+    const priceObj = r?.q?.price || {};
+    const ks = r?.q?.defaultKeyStatistics || {};
+    const fd = r?.q?.financialData || {};
+    const sd = r?.q?.summaryDetail || {};
+    const industry = (r?.q?.price?.exchangeName || 'NASDAQ');
+    const fcfMargins = computeFcfMargins(r?.q);
+    const fcfMarginVal = fcfMargins.fcfMargin;
+    const fcfYield = fcfMargins.fcfYield;
+    const roic = fcfMargins.roic;
+    const interestCoverage = fcfMargins.interestCoverage;
 
-    const row = [name, t];
+    const displayTicker = fallbackSymbols.has(t) ? ('*' + t) : t;
+    const row = [name, displayTicker];
     // Financials
     row.push(r?.aspects?.financialsScore ?? '');
     row.push(
@@ -893,9 +1001,17 @@ async function main() {
   for (const [label,key] of labels) {
     let arr;
     if (key === 'score') {
-      arr = results.filter(r => finalTickers.includes(r.ticker)).sort((a,b) => b.score - a.score).slice(0, topRankCount).map(r=>r.ticker);
+      arr = results
+        .filter(r => finalTickers.includes(r.ticker))
+        .sort((a,b) => b.score - a.score)
+        .slice(0, topRankCount)
+        .map(r => (fallbackSymbols.has(r.ticker) ? ('*' + r.ticker) : r.ticker));
     } else {
-      arr = results.filter(r => finalTickers.includes(r.ticker)).sort((a,b) => (b.aspects[key]||0) - (a.aspects[key]||0)).slice(0, topRankCount).map(r=>r.ticker);
+      arr = results
+        .filter(r => finalTickers.includes(r.ticker))
+        .sort((a,b) => (b.aspects[key]||0) - (a.aspects[key]||0))
+        .slice(0, topRankCount)
+        .map(r => (fallbackSymbols.has(r.ticker) ? ('*' + r.ticker) : r.ticker));
     }
     csv += label + ',' + arr.join(',') + '\n';
   }
@@ -911,7 +1027,7 @@ async function main() {
   writeJsonSafe(QUOTE_CACHE_FILE, qOut);
   writeJsonSafe(QSUMMARY_CACHE_FILE, qsOut);
   if (progressPulse) { try { clearInterval(progressPulse); } catch {} }
-  logProgress('done', { cachedQuotes: Object.keys(qOut).length, cachedSummaries: Object.keys(qsOut).length, elapsedMs: nowMs() - t0, apiCallsTotal, apiCallsSuccess });
+  logProgress('done', { cachedQuotes: Object.keys(qOut).length, cachedSummaries: Object.keys(qsOut).length, elapsedMs: nowMs() - t0, apiCallsTotal, apiCallsSuccess, apiCallsScreenerFail, apiCallsOtherFail });
 }
 // Invoke main at top-level to execute the workflow
 (async () => {
