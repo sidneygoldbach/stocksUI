@@ -1,11 +1,15 @@
 # Logs
 logs
+log/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+
+# Local top-level log file
+/LOG.TXT
 
 node_modules
 dist
