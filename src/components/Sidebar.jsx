@@ -38,9 +38,9 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-left transition-colors ${
+              className={`chrome-pill-btn w-full flex items-center space-x-3 text-left transition-colors ${
                 isActive
-                  ? 'bg-primary-50 text-primary-600 border border-primary-200'
+                  ? 'bg-primary-50 text-primary-600 border border-primary-200 ring-2 ring-primary-300'
                   : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
               }`}
             >

@@ -156,5 +156,133 @@
     "aiScore": "Score IA",
     "volume": "Volume",
     "marketCap": "Capitalisation Boursière"
+  },
+  "dataView": {
+    "tabs": { "graphs": "Graphiques", "analysis": "Analyse" },
+    "analysis": {
+      "epsTitle": "Bénéfice par Action",
+      "revenueVsEarningsTitle": "Revenus vs Bénéfices",
+      "analystRecommendationsTitle": "Recommandations des Analystes",
+      "priceTargetsTitle": "Prix Cibles des Analystes",
+      "low": "Bas",
+      "high": "Haut",
+      "average": "Moyenne",
+      "current": "Actuel"
+    },
+    "indicators": "Indicateurs :",
+    "ema": "EMA",
+    "sma": "SMA",
+    "selectTickerHint": "Sélectionnez un ticker en cliquant sur RESULTADO.",
+    "errorLoadingChart": "Erreur lors du chargement du graphique",
+    "loading": "Chargement des données...",
+    "points": "Points",
+    "intervalUsed": "Intervalle utilisé",
+    "rawTs": "ts brut",
+    "rawCloses": "clôtures brutes",
+    "nullCloses": "clôtures nulles",
+    "validCloses": "clôtures valides",
+    "pointsPanelTitle": "Liste complète des points ({{range}}) :",
+    "copyCsv": "Copier CSV",
+    "time": "Heure",
+    "open": "Ouverture",
+    "high": "Haut",
+    "low": "Bas",
+    "close": "Clôture",
+    "volume": "Volume"
+  },
+  "aero": {
+    "title": "Analyses et Classements des Actions",
+    "subtitle": "Interface propre et conviviale pour configurer et lancer votre analyse.",
+    "start": "DÉMARRER",
+    "pause": "PAUSE",
+    "reset": "RÉINITIALISER"
+  },
+  "controlPanel": {
+    "title": "Panneau de Contrôle d'Analyse",
+    "tabs": {
+      "general": "Général",
+      "network": "Réseau & Backoff",
+      "advanced": "Avancé",
+      "manual": "Manuel",
+      "progress": "Progression",
+      "result": "Résultat",
+      "dataView": "Vue des Données"
+    },
+    "mainParams": "Paramètres Principaux",
+    "networkGroupTitle": "Réseau, Jitter et Backoff",
+    "outputAndRun": "Sortie et Exécution",
+    "manualTickers": "Tickers Manuels (jusqu'à 50)",
+    "generationProgress": "Progression de la Génération",
+    "stepsQueriesResults": "Étapes, Requêtes et Résultats",
+    "resultCsv": "Résultat (CSV)",
+    "dataViewGroupTitle": "Vue des Données",
+    "importLocalCsv": "Importer CSV local",
+    "quickFilterPlaceholder": "Filtre rapide (tous les sous-onglets)",
+    "downloadCsv": "Télécharger CSV",
+    "clearSelection": "Effacer la sélection (Tous)",
+    "general": {
+      "targetCountLabel": "Quantité d'actions sous-évaluées",
+      "targetCountHint": "Définit combien de tickers sont sélectionnés dans le rapport (actuel : {{count}}).",
+      "targetCountWarning": "Attention : des valeurs au-dessus de 500 peuvent augmenter le temps d'exécution et le risque de limitation de taux.",
+      "minPriceCutoffLabel": "Prix minimum pour ne pas être Penny Stock (US$)",
+      "minPriceCutoffHint": "Seuil pour exclure les penny stocks (actuel : {{value}}). Accepte les centimes.",
+      "filterBySectorLabel": "Filtrer par Secteur (multi)",
+      "sectorFiltersHint": "S'applique avant la génération : n'inclut que les tickers des secteurs sélectionnés. Sans sélection = All of them (sans filtre).",
+      "filterByIndustryLabel": "Filtrer par Industrie",
+      "industryFiltersHint": "Ajoutez des noms d'industries séparés par des virgules, ex. : Semiconductors, Software Infrastructure, Banks.",
+      "topRankCount": "Nombre d'actions classées par colonne (Top N)",
+      "topRankCountHint": "Classe les {{count}} meilleures par métrique en bas du CSV.",
+      "strictMode": "Mode Strict",
+      "quietMode": "Mode Silencieux",
+      "cacheTtlHours": "TTL du Cache (heures)",
+      "cacheTtlHint": "Durée de validité pour réutiliser les résultats."
+    },
+    "network": {
+      "jitterMin": "Jitter Min (ms)",
+      "jitterMax": "Jitter Max (ms)",
+      "backoffMax": "Backoff Max (ms)",
+      "cooldownThreshold": "Seuil de Cooldown",
+      "cooldownMs": "Cooldown (ms)"
+    },
+    "output": {
+      "csvName": "Nom de sortie du CSV",
+      "csvNameHint": "Si vide, un nom avec timestamp sera suggéré."
+    },
+    "advanced": {
+      "suppressSurvey": "Supprimer les avertissements de survey",
+      "skipValidation": "Ignorer la validation",
+      "noValidationLogs": "Désactiver les logs d'échecs de validation",
+      "excludeNa": "Exclure NA",
+      "minFields": "Champs valides minimum",
+      "minFieldsHint": "Champs requis par ticker avant d'utiliser les métriques.",
+      "noFallback": "Ne pas utiliser de fallback de tickers",
+      "maxScreenerPages": "Limite de pages des screeners",
+      "maxScreenerPagesHint": "Chaque page retourne ~100 éléments ; réduire économise des appels.",
+      "skipTickers": "Tickers à ignorer (CSV)",
+      "skipTickersPlaceholder": "ex. : AAPL, TSLA, MSFT",
+      "skipTickersHint": "Tickers séparés par des virgules à exclure de l'analyse."
+    },
+    "progress": {
+      "eta": "ETA",
+      "progress": "Progression",
+      "rate": "Rythme",
+      "itemsPerSec": "éléments/s",
+      "elapsed": "Écoulé",
+      "calls": "Appels",
+      "success": "Succès",
+      "pageFailures": "Échecs (page)",
+      "otherFailures": "Échecs (autres)",
+      "logsHeader": "Logs (auto-scroll)",
+      "done": "Terminé",
+      "calculating": "Calcul en cours..."
+    },
+    "result": {
+       "loadLastRun": "Charger le CSV de la dernière exécution",
+       "loadMostRecentFromDisk": "Charger le CSV le plus récent du disque",
+       "csvSourceLabel": "Source du CSV",
+       "csvSourceLocal": "Fichier local",
+       "csvSourceLastRun": "Dernière exécution",
+       "csvSourceFromDisk": "Plus récent du disque"
+     }
   }
 }

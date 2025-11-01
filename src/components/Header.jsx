@@ -30,13 +30,13 @@ const Header = () => {
         <div className="flex items-center space-x-4">
           <LanguageSelector />
           <button 
-            className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+            className="chrome-pill-btn p-2"
             title={t('header.notifications')}
           >
             <Bell className="w-5 h-5" />
           </button>
           <button 
-            className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+            className="chrome-pill-btn p-2"
             title={t('header.profile')}
           >
             <User className="w-5 h-5" />

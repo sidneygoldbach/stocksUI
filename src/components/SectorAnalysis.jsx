@@ -149,7 +149,7 @@ const SectorAnalysis = ({ globalSearchTerm }) => {
 
       {/* Performance Tab */}
       {activeTab === 'performance' && (
-        <div className="space-y-6">
+      <div className="chrome-tab-panel space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Sector Performance Chart */}
             <div className="bg-gray-50 p-4 rounded-lg">
@@ -243,7 +243,7 @@ const SectorAnalysis = ({ globalSearchTerm }) => {
 
       {/* Distribution Tab */}
       {activeTab === 'distribution' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="chrome-tab-panel grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-gray-50 p-4 rounded-lg">
             <h3 className="text-lg font-semibold mb-4">{t('sectorAnalysis.marketCapDistribution')}</h3>
             <ResponsiveContainer width="100%" height={300}>
@@ -296,7 +296,7 @@ const SectorAnalysis = ({ globalSearchTerm }) => {
 
       {/* Market Comparison Tab */}
       {activeTab === 'comparison' && (
-        <div className="space-y-6">
+      <div className="chrome-tab-panel space-y-6">
           <div className="bg-gray-50 p-4 rounded-lg">
             <h3 className="text-lg font-semibold mb-4">{t('sectorAnalysis.globalMarkets')}</h3>
             <ResponsiveContainer width="100%" height={300}>
@@ -350,53 +350,54 @@ const SectorAnalysis = ({ globalSearchTerm }) => {
 
       {/* Radar Tab */}
       {activeTab === 'radar' && (
-        <div className="bg-gray-50 p-4 rounded-lg">
-          <h3 className="text-lg font-semibold mb-4">{t('sectorAnalysis.multidimensionalAnalysis')}</h3>
-          <ResponsiveContainer width="100%" height={400}>
-            <RadarChart data={radarData}>
-              <PolarGrid />
-              <PolarAngleAxis dataKey="sector" />
-              <PolarRadiusAxis angle={90} domain={[0, 100]} />
-              <Radar
-                name={t('common.performance')}
-                dataKey="performance"
-                stroke="#0088FE"
-                fill="#0088FE"
-                fillOpacity={0.1}
-              />
-              <Radar
-                name={t('common.aiScore')}
-                dataKey="aiScore"
-                stroke="#00C49F"
-                fill="#00C49F"
-                fillOpacity={0.1}
-              />
-              <Radar
-                name={t('common.volume')}
-                dataKey="volume"
-                stroke="#FFBB28"
-                fill="#FFBB28"
-                fillOpacity={0.1}
-              />
-              <Radar
-                name={t('common.marketCap')}
-                dataKey="marketCap"
-                stroke="#FF8042"
-                fill="#FF8042"
-                fillOpacity={0.1}
-              />
-              <Legend />
-              <Tooltip />
-            </RadarChart>
-          </ResponsiveContainer>
-          
-          <div className="mt-4 text-sm text-gray-600">
-            <p>{t('sectorAnalysis.radarDescription')}</p>
+      <div className="chrome-tab-panel space-y-6">
+          <div className="bg-gray-50 p-4 rounded-lg">
+            <h3 className="text-lg font-semibold mb-4">{t('sectorAnalysis.multidimensionalAnalysis')}</h3>
+            <ResponsiveContainer width="100%" height={400}>
+              <RadarChart data={radarData}>
+                <PolarGrid />
+                <PolarAngleAxis dataKey="sector" />
+                <PolarRadiusAxis angle={90} domain={[0, 100]} />
+                <Radar
+                  name={t('common.performance')}
+                  dataKey="performance"
+                  stroke="#0088FE"
+                  fill="#0088FE"
+                  fillOpacity={0.1}
+                />
+                <Radar
+                  name={t('common.aiScore')}
+                  dataKey="aiScore"
+                  stroke="#00C49F"
+                  fill="#00C49F"
+                  fillOpacity={0.1}
+                />
+                <Radar
+                  name={t('common.volume')}
+                  dataKey="volume"
+                  stroke="#FFBB28"
+                  fill="#FFBB28"
+                  fillOpacity={0.1}
+                />
+                <Radar
+                  name={t('common.marketCap')}
+                  dataKey="marketCap"
+                  stroke="#FF8042"
+                  fill="#FF8042"
+                  fillOpacity={0.1}
+                />
+                <Legend />
+                <Tooltip />
+              </RadarChart>
+            </ResponsiveContainer>
+            
+            <div className="mt-4 text-sm text-gray-600">
+              <p>{t('sectorAnalysis.radarDescription')}</p>
+            </div>
           </div>
         </div>
       )}
-    </div>
-  );
+    );
 };
 
 export default SectorAnalysis;

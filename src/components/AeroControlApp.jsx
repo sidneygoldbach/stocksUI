@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import ControlPanel from './ControlPanel.jsx'
+import LanguageSelector from './LanguageSelector.jsx'
+import { useTranslation } from 'react-i18next'
 
 // Efeitos 3D intensificados e tema aeronáutico dedicado
 export default function AeroControlApp() {
@@ -41,6 +43,7 @@ export default function AeroControlApp() {
     playBeep(520, 0.09, 0.12)
   }
 
+  const { t } = useTranslation()
   return (
     <div
       className="min-h-screen bg-gray-50"
@@ -53,25 +56,32 @@ export default function AeroControlApp() {
       {/* Container principal simples */}
       <div className="relative z-10 mx-auto max-w-5xl px-6 py-8">
         <div
-          className="rounded-lg p-6 bg-white border border-gray-200 shadow-sm"
+          className="relative rounded-lg p-6 bg-white border border-gray-200 shadow-sm"
           style={{}}
         >
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">
-            Painel de Análise
-          </h1>
+          <div className="flex items-center justify-between">
+            <h1 className="text-xl font-bold tracking-tight text-gray-900">
+              {t('aero.title')}
+            </h1>
+            <LanguageSelector />
+          </div>
           <p className="mt-2 text-gray-600 text-sm">
-            Interface limpa e amigável para configurar e disparar sua análise.
+            {t('aero.subtitle')}
           </p>
 
           {/* Botões tradicionais */}
           <div className="mt-6 flex flex-wrap gap-3">
-            {['INICIAR', 'PAUSAR', 'RESET'].map((label, idx) => (
+            {[
+              { key: 'start', label: t('aero.start') },
+              { key: 'pause', label: t('aero.pause') },
+              { key: 'reset', label: t('aero.reset') }
+            ].map((btn) => (
               <button
-                key={label}
-                onClick={(e) => { e.preventDefault(); if (label==='INICIAR') cpRef.current?.startRun?.(); }}
-                className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium"
+                key={btn.key}
+                onClick={(e) => { e.preventDefault(); if (btn.key==='start') cpRef.current?.startRun?.(); if (btn.key==='pause') cpRef.current?.pauseRun?.(); if (btn.key==='reset') cpRef.current?.resetRun?.(); }}
+                className="chrome-pill-btn text-sm"
               >
-                {label}
+                {btn.label}
               </button>
             ))}
           </div>

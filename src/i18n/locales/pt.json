@@ -156,5 +156,133 @@
     "aiScore": "Pontuação IA",
     "volume": "Volume",
     "marketCap": "Capitalização de Mercado"
+  },
+  "dataView": {
+    "tabs": { "graphs": "Gráficos", "analysis": "Análise" },
+    "analysis": {
+      "epsTitle": "Lucro por Ação",
+      "revenueVsEarningsTitle": "Receita vs. Lucros",
+      "analystRecommendationsTitle": "Recomendações de Analistas",
+      "priceTargetsTitle": "Preços Alvo de Analistas",
+      "low": "Baixo",
+      "high": "Alto",
+      "average": "Média",
+      "current": "Atual"
+    },
+    "indicators": "Indicadores:",
+    "ema": "EMA",
+    "sma": "SMA",
+    "selectTickerHint": "Selecione um ticker clicando em RESULTADO.",
+    "errorLoadingChart": "Erro ao carregar gráfico",
+    "loading": "Carregando dados...",
+    "points": "Pontos",
+    "intervalUsed": "Intervalo usado",
+    "rawTs": "Raw ts",
+    "rawCloses": "Raw closes",
+    "nullCloses": "Null closes",
+    "validCloses": "Valid closes",
+    "pointsPanelTitle": "Lista completa de pontos ({{range}}):",
+    "copyCsv": "Copiar CSV",
+    "time": "Tempo",
+    "open": "Abertura",
+    "high": "Alta",
+    "low": "Baixa",
+    "close": "Fechamento",
+    "volume": "Volume"
+  },
+  "aero": {
+    "title": "Análises e Ranqueamentos de Ações",
+    "subtitle": "Interface limpa e amigável para configurar e disparar sua análise.",
+    "start": "INICIAR",
+    "pause": "PAUSAR",
+    "reset": "RESET"
+  },
+  "controlPanel": {
+    "title": "Painel de Controle de Análise",
+    "tabs": {
+      "general": "Geral",
+      "network": "Rede & Backoff",
+      "advanced": "Avançado",
+      "manual": "Manual",
+      "progress": "Progresso",
+      "result": "Resultado",
+      "dataView": "Data View"
+    },
+    "mainParams": "Parâmetros Principais",
+    "networkGroupTitle": "Rede, Jitter e Backoff",
+    "outputAndRun": "Saída e Execução",
+    "manualTickers": "Tickers Manuais (até 50)",
+    "generationProgress": "Progresso da Geração",
+    "stepsQueriesResults": "Etapas, Consultas e Resultados",
+    "resultCsv": "Resultado (CSV)",
+    "dataViewGroupTitle": "Data View",
+    "importLocalCsv": "Importar CSV local",
+    "quickFilterPlaceholder": "Filtro rápido (todas sub-abas)",
+    "downloadCsv": "Baixar CSV",
+    "clearSelection": "Limpar seleção (Todos)",
+    "general": {
+      "targetCountLabel": "Quantidade de stocks subavaliados",
+      "targetCountHint": "Define quantos tickers serão selecionados no relatório (atual: {{count}}).",
+      "targetCountWarning": "Aviso: valores acima de 500 podem aumentar o tempo de execução e o risco de rate limiting.",
+      "minPriceCutoffLabel": "Preço mínimo para não ser Penny Stock (US$)",
+      "minPriceCutoffHint": "Valor de corte para excluir penny stocks (atual: {{value}}). Aceita centavos.",
+      "filterBySectorLabel": "Filtrar por Setor (multi)",
+      "sectorFiltersHint": "Aplica-se antes de gerar: só inclui tickers dos setores marcados. Sem seleção = All of them (sem filtro).",
+      "filterByIndustryLabel": "Filtrar por Indústria",
+      "industryFiltersHint": "Adicione nomes de indústrias separados por vírgula, ex.: Semiconductors, Software Infrastructure, Banks.",
+      "topRankCount": "Número de stocks rankeados por coluna (Top N)",
+      "topRankCountHint": "Ranqueia os {{count}} melhores por métrica no fim do CSV.",
+      "strictMode": "Modo Estrito",
+      "quietMode": "Modo Silencioso",
+      "cacheTtlHours": "TTL do Cache (horas)",
+      "cacheTtlHint": "Tempo de validade para reuso dos resultados."
+    },
+    "network": {
+      "jitterMin": "Jitter Mínimo (ms)",
+      "jitterMax": "Jitter Máximo (ms)",
+      "backoffMax": "Backoff Máximo (ms)",
+      "cooldownThreshold": "Cooldown Threshold",
+      "cooldownMs": "Cooldown (ms)"
+    },
+    "output": {
+      "csvName": "Nome de saída do CSV",
+      "csvNameHint": "Se vazio, um nome com timestamp será sugerido."
+    },
+    "advanced": {
+      "suppressSurvey": "Suprimir avisos de survey",
+      "skipValidation": "Pular validação",
+      "noValidationLogs": "Desativar logs de falhas de validação",
+      "excludeNa": "Excluir NA",
+      "minFields": "Campos válidos mínimos",
+      "minFieldsHint": "Campos preenchidos por ticker exigidos antes de usar métricas.",
+      "noFallback": "Não usar fallback de tickers",
+      "maxScreenerPages": "Limite de páginas dos screeners",
+      "maxScreenerPagesHint": "Cada página retorna ~100 itens; reduzir poupa chamadas.",
+      "skipTickers": "Tickers a ignorar (CSV)",
+      "skipTickersPlaceholder": "ex.: AAPL, TSLA, MSFT",
+      "skipTickersHint": "Tickers separados por vírgula a serem ignorados da análise."
+    },
+    "progress": {
+      "eta": "ETA",
+      "progress": "Progresso",
+      "rate": "Ritmo",
+      "itemsPerSec": "itens/s",
+      "elapsed": "Decorrido",
+      "calls": "Chamadas",
+      "success": "Sucesso",
+      "pageFailures": "Falhas (página)",
+      "otherFailures": "Falhas (outras)",
+      "logsHeader": "Logs (auto-scroll)",
+      "done": "Concluído",
+      "calculating": "Calculando..."
+    },
+    "result": {
+       "loadLastRun": "Carregar CSV da última execução",
+       "loadMostRecentFromDisk": "Carregar CSV mais recente do disco",
+       "csvSourceLabel": "Fonte do CSV",
+       "csvSourceLocal": "Arquivo local",
+       "csvSourceLastRun": "Última execução",
+       "csvSourceFromDisk": "Mais recente do disco"
+     }
   }
 }

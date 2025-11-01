@@ -13,3 +13,514 @@ body {
   min-height: 100vh;
   background-color: #f8fafc;
 }
+
+@layer components {
+  .chrome-tabs-scroll {
+    -webkit-mask-image: linear-gradient(to right, transparent 0, black 24px, black calc(100% - 24px), transparent 100%);
+            mask-image: linear-gradient(to right, transparent 0, black 24px, black calc(100% - 24px), transparent 100%);
+  }
+  .chrome-tabs-arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(0,0,0,0.05);
+    border: 1px solid rgba(0,0,0,0.12);
+    border-radius: 999px;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #4b5563;
+    transition: background .2s ease;
+    z-index: 5;
+  }
+  .chrome-tabs-arrow.left { left: 4px; }
+  .chrome-tabs-arrow.right { right: 4px; }
+  .chrome-tabs-arrow:hover { background: rgba(0,0,0,0.12); }
+
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+  /* Remoção das regras duplicadas de .chrome-tab — usar bloco unificado abaixo */
+  /* (base branca para inativas, ativa verde clara sem separador) */
+
+  /* Botões estilo Chrome */
+  .chrome-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    background: #f8f9fa;
+    color: #3c4043;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    overflow: hidden;
+    outline: none;
+  }
+
+  .chrome-btn:hover {
+    background: #f1f3f4;
+    border-color: #dadce0;
+    box-shadow: 0 1px 1px rgba(0,0,0,0.1);
+  }
+
+  .chrome-btn:focus {
+    border-color: #4285f4;
+    box-shadow: 0 0 0 1px #4285f4;
+  }
+
+  .chrome-btn:active {
+    background: #e8eaed;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1) inset;
+  }
+
+  /* Variantes de cor */
+  .chrome-btn.primary {
+    background: #1a73e8;
+    border-color: #1a73e8;
+    color: white;
+  }
+
+  .chrome-btn.primary:hover {
+    background: #1557b0;
+    border-color: #1557b0;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+  }
+
+  .chrome-btn.primary:active {
+    background: #1143a3;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2) inset;
+  }
+
+  .chrome-btn.success {
+    background: #137333;
+    border-color: #137333;
+    color: white;
+  }
+
+  .chrome-btn.success:hover {
+    background: #0f5132;
+    border-color: #0f5132;
+  }
+
+  .chrome-btn.warning {
+    background: #f9ab00;
+    border-color: #f9ab00;
+    color: #202124;
+  }
+
+  .chrome-btn.warning:hover {
+    background: #ea8600;
+    border-color: #ea8600;
+  }
+
+  .chrome-btn.danger {
+    background: #d93025;
+    border-color: #d93025;
+    color: white;
+  }
+
+  .chrome-btn.danger:hover {
+    background: #b52d20;
+    border-color: #b52d20;
+  }
+
+  /* Animação ripple */
+  .chrome-btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.1);
+    transform: translate(-50%, -50%);
+    transition: width 0.3s ease, height 0.3s ease;
+    pointer-events: none;
+  }
+
+  .chrome-btn.primary::before {
+    background: rgba(255,255,255,0.2);
+  }
+
+  .chrome-btn:active::before {
+    width: 300px;
+    height: 300px;
+    transition: width 0.1s ease, height 0.1s ease;
+  }
+
+  /* Botão desabilitado */
+  .chrome-btn:disabled {
+    background: #f8f9fa;
+    border-color: #f0f0f0;
+    color: #9aa0a6;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  .chrome-btn:disabled::before {
+    display: none;
+  }
+}
+
+  /* Abas Chrome */
+  .chrome-tab {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: white;
+    border: 1px solid #dadce0;
+    border-bottom: 1px solid #dadce0;
+    border-radius: 8px 8px 0 0;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 14px;
+    color: #5f6368;
+    min-width: 120px;
+    max-width: 240px;
+    overflow: hidden;
+  }
+
+  /* Aba ativa - se mistura com painel verde claro */
+  .chrome-tab.active {
+    background: #f0f9f0;
+    border-bottom: 0;
+    color: #137333;
+    z-index: 1;
+  }
+
+  .chrome-tab-panel {
+    background: #f0f9f0;
+    border: 1px solid #dadce0;
+    border-top: 0;
+    border-radius: 0 8px 8px 8px;
+    padding: 12px;
+  }
+
+  /* Hover apenas para abas inativas */
+  .chrome-tab:not(.active):hover {
+    background: #f8f9fa;
+    border-color: #dadce0;
+  }
+
+/* duplicatas .chrome-tab e .chrome-btn removidas após keyframes */
+
+  .chrome-btn:hover {
+    background: #f1f3f4;
+    border-color: #dadce0;
+    box-shadow: 0 1px 1px rgba(0,0,0,0.1);
+  }
+
+  .chrome-btn:focus {
+    border-color: #4285f4;
+    box-shadow: 0 0 0 1px #4285f4;
+  }
+
+  .chrome-btn:active {
+    background: #e8eaed;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1) inset;
+  }
+
+  /* Variantes de cor */
+  .chrome-btn.primary {
+    background: #1a73e8;
+    border-color: #1a73e8;
+    color: white;
+  }
+
+  .chrome-btn.primary:hover {
+    background: #1557b0;
+    border-color: #1557b0;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+  }
+
+  .chrome-btn.primary:active {
+    background: #1143a3;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2) inset;
+  }
+
+  .chrome-btn.success {
+    background: #137333;
+    border-color: #137333;
+    color: white;
+  }
+
+  .chrome-btn.success:hover {
+    background: #0f5132;
+    border-color: #0f5132;
+  }
+
+  .chrome-btn.warning {
+    background: #f9ab00;
+    border-color: #f9ab00;
+    color: #202124;
+  }
+
+  .chrome-btn.warning:hover {
+    background: #ea8600;
+    border-color: #ea8600;
+  }
+
+  .chrome-btn.danger {
+    background: #d93025;
+    border-color: #d93025;
+    color: white;
+  }
+
+  .chrome-btn.danger:hover {
+    background: #b52d20;
+    border-color: #b52d20;
+  }
+
+  /* Animação ripple */
+  .chrome-btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.1);
+    transform: translate(-50%, -50%);
+    transition: width 0.3s ease, height 0.3s ease;
+    pointer-events: none;
+  }
+
+  .chrome-btn.primary::before {
+    background: rgba(255,255,255,0.2);
+  }
+
+  .chrome-btn:active::before {
+    width: 300px;
+    height: 300px;
+    transition: width 0.1s ease, height 0.1s ease;
+  }
+
+  /* Botão desabilitado */
+  .chrome-btn:disabled {
+    background: #f8f9fa;
+    border-color: #f0f0f0;
+    color: #9aa0a6;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  .chrome-btn:disabled::before {
+    display: none;
+  }
+
+  /* Botão Chrome estilo pill tonal com ripple central */
+  .chrome-pill-btn {
+    --pill-bg: #cfe9cf;
+    --pill-fg: #202124;
+    --pill-hover: #c2e1c2;
+    --pill-shadow: 0 2px 6px rgba(0,0,0,.12);
+
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border: none;
+    border-radius: 9999px;
+    background: var(--pill-bg);
+    color: var(--pill-fg);
+    font-size: 14px;
+    font-weight: 500;
+    box-shadow: var(--pill-shadow);
+    cursor: pointer;
+    transition: background .2s ease, box-shadow .2s ease, transform .06s ease;
+    outline: none;
+    overflow: hidden;
+  }
+  .chrome-pill-btn:hover { background: var(--pill-hover); }
+  .chrome-pill-btn:active { transform: translateY(0.5px); }
+
+  .chrome-pill-btn .icon { width: 16px; height: 16px; display: inline-flex; align-items: center; }
+
+  /* Ripple central */
+  .chrome-pill-btn .ripple {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(0,0,0,.12);
+    transform: translate(-50%, -50%);
+    animation: chromeRipple .35s ease-out forwards;
+    pointer-events: none;
+  }
+  @keyframes chromeRipple {
+    0%   { width: 0; height: 0; opacity: .25; }
+    100% { width: 260px; height: 260px; opacity: 0; }
+  }
+
+  /* Ripple via pseudo para pill (fallback sem JS) */
+  .chrome-pill-btn::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(0,0,0,.12);
+    transform: translate(-50%, -50%);
+    transition: width 0.3s ease, height 0.3s ease;
+    pointer-events: none;
+  }
+  .chrome-pill-btn:active::before {
+    width: 260px;
+    height: 260px;
+    transition: width 0.1s ease, height 0.1s ease;
+  }
+
+  .chrome-pill-btn:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; }
+
+  .chrome-tab .favicon { width: 16px; height: 16px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+  .chrome-tab .title { font-size: 13px; font-weight: 500; white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+
+  .chrome-tab .close-btn { margin-left: 4px; opacity: 0; transition: opacity .15s ease; display: flex; align-items: center; }
+  .chrome-tab:hover .close-btn, .chrome-tab.active .close-btn { opacity: 1; }
+  .chrome-tab .close-btn svg { width: 14px; height: 14px; color: #6b7280; }
+  .chrome-tab .close-btn:hover svg { color: #111827; }
+
+  /* estado de atenção: sublinhado/linha inferior azul como Chrome */
+  .chrome-tab.attention { box-shadow: inset 0 -2px 0 #3b82f6; }
+
+  /* Botões estilo Chrome */
+  .chrome-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    background: #f8f9fa;
+    color: #3c4043;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    overflow: hidden;
+    outline: none;
+  }
+
+  .chrome-btn:hover {
+    background: #f1f3f4;
+    border-color: #dadce0;
+    box-shadow: 0 1px 1px rgba(0,0,0,0.1);
+  }
+
+  .chrome-btn:focus {
+    border-color: #4285f4;
+    box-shadow: 0 0 0 1px #4285f4;
+  }
+
+  .chrome-btn:active {
+    background: #e8eaed;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1) inset;
+  }
+
+  /* Variantes de cor */
+  .chrome-btn.primary {
+    background: #1a73e8;
+    border-color: #1a73e8;
+    color: white;
+  }
+
+  .chrome-btn.primary:hover {
+    background: #1557b0;
+    border-color: #1557b0;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+  }
+
+  .chrome-btn.primary:active {
+    background: #1143a3;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2) inset;
+  }
+
+  .chrome-btn.success {
+    background: #137333;
+    border-color: #137333;
+    color: white;
+  }
+
+  .chrome-btn.success:hover {
+    background: #0f5132;
+    border-color: #0f5132;
+  }
+
+  .chrome-btn.warning {
+    background: #f9ab00;
+    border-color: #f9ab00;
+    color: #202124;
+  }
+
+  .chrome-btn.warning:hover {
+    background: #ea8600;
+    border-color: #ea8600;
+  }
+
+  .chrome-btn.danger {
+    background: #d93025;
+    border-color: #d93025;
+    color: white;
+  }
+
+  .chrome-btn.danger:hover {
+    background: #b52d20;
+    border-color: #b52d20;
+  }
+
+  /* Animação ripple */
+  .chrome-btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.1);
+    transform: translate(-50%, -50%);
+    transition: width 0.3s ease, height 0.3s ease;
+    pointer-events: none;
+  }
+
+  .chrome-btn.primary::before {
+    background: rgba(255,255,255,0.2);
+  }
+
+  .chrome-btn:active::before {
+    width: 300px;
+    height: 300px;
+    transition: width 0.1s ease, height 0.1s ease;
+  }
+
+  /* Botão desabilitado */
+  .chrome-btn:disabled {
+    background: #f8f9fa;
+    border-color: #f0f0f0;
+    color: #9aa0a6;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  .chrome-btn:disabled::before {
+    display: none;
+  }

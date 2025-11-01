@@ -226,7 +226,7 @@ const TopStocks = () => {
           <div className="mt-8 text-center">
             <button
               onClick={() => setVisibleStocks(prev => prev + 12)}
-              className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+              className="chrome-pill-btn"
             >
               {t('topStocks.loadMore')}
             </button>

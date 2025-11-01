@@ -135,7 +135,7 @@ const Dashboard = () => {
 
       {/* Tab Content */}
       {activeTab === 'overview' && (
-        <div className="space-y-6">
+        <div className="chrome-tab-panel space-y-6">
           {/* Advanced Filters */}
           <AdvancedFilters 
             onFiltersChange={setFilteredStocks}
@@ -207,7 +207,7 @@ const Dashboard = () => {
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-900">{t('dashboard.performance')}</h3>
-            <button className="text-sm text-primary-600 hover:text-primary-700">{t('dashboard.viewAll')}</button>
+            <button className="chrome-pill-btn text-sm">{t('dashboard.viewAll')}</button>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -245,7 +245,7 @@ const Dashboard = () => {
       <div className="bg-white rounded-lg border border-gray-200 p-6">
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-lg font-semibold text-gray-900">{t('dashboard.topStocks')} ({targetCount})</h3>
-          <button className="text-sm text-primary-600 hover:text-primary-700">{t('dashboard.viewAll')}</button>
+          <button className="chrome-pill-btn text-sm">{t('dashboard.viewAll')}</button>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {topStocks.slice(0, Math.min(6, targetCount)).map((stock) => (
@@ -264,22 +264,30 @@ const Dashboard = () => {
 
       {/* Advanced Charts Tab */}
       {activeTab === 'charts' && (
-        <AdvancedCharts globalSearchTerm={globalSearchTerm} />
+        <div className="chrome-tab-panel">
+          <AdvancedCharts globalSearchTerm={globalSearchTerm} />
+        </div>
       )}
 
       {/* AI Analysis Tab */}
       {activeTab === 'ai' && (
-        <AIAnalysis globalSearchTerm={globalSearchTerm} />
+        <div className="chrome-tab-panel">
+          <AIAnalysis globalSearchTerm={globalSearchTerm} />
+        </div>
       )}
 
       {/* Sector Analysis Tab */}
       {activeTab === 'sectors' && (
-        <SectorAnalysis globalSearchTerm={globalSearchTerm} />
+        <div className="chrome-tab-panel">
+          <SectorAnalysis globalSearchTerm={globalSearchTerm} />
+        </div>
       )}
 
       {/* Portfolio Tab */}
       {activeTab === 'portfolio' && (
-        <PortfolioTracker globalSearchTerm={globalSearchTerm} />
+        <div className="chrome-tab-panel">
+          <PortfolioTracker globalSearchTerm={globalSearchTerm} />
+        </div>
       )}
     </div>
   );

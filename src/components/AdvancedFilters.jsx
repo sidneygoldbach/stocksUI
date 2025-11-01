@@ -357,10 +357,10 @@ const AdvancedFilters = ({ onFiltersChange, stocks = [] }) => {
           <div className="flex justify-end pt-4 border-t">
             <button
               onClick={resetFilters}
-              className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+              className="chrome-pill-btn flex items-center space-x-2 text-sm"
             >
               <X className="h-4 w-4" />
-              <span className="text-sm font-medium">{t('filters.reset')}</span>
+              <span className="font-medium">{t('filters.reset')}</span>
             </button>
           </div>
         </div>

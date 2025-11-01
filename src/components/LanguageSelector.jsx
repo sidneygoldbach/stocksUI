@@ -24,7 +24,7 @@ const LanguageSelector = () => {
     <div className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center space-x-2 px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 transition-colors"
+        className="chrome-pill-btn flex items-center space-x-2"
         title={t('common.language')}
       >
         <Globe className="w-4 h-4 text-gray-600" />
@@ -41,9 +41,7 @@ const LanguageSelector = () => {
               <button
                 key={language.code}
                 onClick={() => handleLanguageChange(language.code)}
-                className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 flex items-center space-x-3 ${
-                  i18n.language === language.code ? 'bg-blue-50 text-blue-600' : 'text-gray-700'
-                }`}
+                className={`chrome-pill-btn w-full text-left text-sm flex items-center space-x-3 ${i18n.language === language.code ? 'ring-2 ring-blue-500' : ''}`}
               >
                 <span className="text-lg">{language.flag}</span>
                 <span>{language.name}</span>
