@@ -242,7 +242,7 @@
       "filterBySectorLabel": "Filtrar por Setor (multi)",
       "sectorFiltersHint": "Aplica-se antes de gerar: só inclui tickers dos setores marcados. Sem seleção = All of them (sem filtro).",
       "filterByIndustryLabel": "Filtrar por Indústria",
-      "industryFiltersHint": "Adicione nomes de indústrias separados por vírgula, ex.: Semiconductors, Software Infrastructure, Banks.",
+  "industryFiltersHint": "Selecione uma ou mais indústrias usando as checkboxes.",
       "topRankCount": "Número de stocks rankeados por coluna (Top N)",
       "topRankCountHint": "Ranqueia os {{count}} melhores por métrica no fim do CSV.",
       "strictMode": "Modo Estrito",

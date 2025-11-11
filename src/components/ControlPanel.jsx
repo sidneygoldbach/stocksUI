@@ -158,6 +158,34 @@ const ControlPanel = (props, ref) => {
     'Real Estate',
     'Materials'
   ]), []);
+  // Lista estática de indústrias para pré-filtro (UI)
+  const STATIC_INDUSTRIES = useMemo(() => ([
+    'Semiconductors',
+    'Software Infrastructure',
+    'Information Technology Services',
+    'Banks',
+    'Asset Management',
+    'Insurance',
+    'Biotechnology',
+    'Pharmaceuticals',
+    'Medical Devices',
+    'Health Information Services',
+    'Aerospace & Defense',
+    'Industrial Products',
+    'Automobiles',
+    'Auto Parts',
+    'Oil & Gas',
+    'Renewable Energy',
+    'Utilities - Regulated',
+    'Real Estate Services',
+    'REIT',
+    'Retail',
+    'Specialty Retail',
+    'Internet Content & Information',
+    'Telecom Services',
+    'Communication Equipment',
+    'Electronic Components'
+  ]), []);
   // canonical group mapping for row1
   const CANONICAL_GROUPS = useMemo(() => ({
     Financials: new Set(['Financials','Financial Statements Analysis']),
@@ -1243,19 +1271,39 @@ const ControlPanel = (props, ref) => {
                 {t('controlPanel.general.sectorFiltersHint')}
               </p>
             </div>
-            {/* Filtro por Indústria (pré-análise) */}
+            {/* Filtro por Indústria (pré-análise, multi-seleção) */}
             <div className="text-sm md:col-span-3">
               <label className="block font-medium mb-1">{t('controlPanel.general.filterByIndustryLabel')}</label>
-              <input
-                type="text"
-                placeholder="Ex.: Semiconductors, Software Infrastructure, Banks"
-                value={(config.industryFilters || []).join(', ')}
-                onChange={(e) => {
-                  const arr = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-                  setConfig({ ...config, industryFilters: arr });
-                }}
-                className="w-[360px] max-w-full p-2 rounded-md border"
-              />
+              <div className="flex flex-col gap-2 p-2 border rounded-md w-[360px] max-w-full">
+                <div className="flex flex-wrap gap-3">
+                  {STATIC_INDUSTRIES.map((ind) => {
+                    const checked = (config.industryFilters || []).includes(ind);
+                    return (
+                      <label key={ind} className="inline-flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            const prev = new Set(config.industryFilters || []);
+                            if (e.target.checked) prev.add(ind); else prev.delete(ind);
+                            setConfig({ ...config, industryFilters: Array.from(prev) });
+                          }}
+                        />
+                        {ind}
+                      </label>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    className="chrome-pill-btn text-xs"
+                    onClick={() => setConfig({ ...config, industryFilters: [] })}
+                  >
+                    {t('controlPanel.clearSelection')}
+                  </button>
+                </div>
+              </div>
               <p className="text-gray-600 text-xs mt-1">
                 {t('controlPanel.general.industryFiltersHint')}
               </p>

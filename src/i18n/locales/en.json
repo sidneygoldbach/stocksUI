@@ -269,7 +269,7 @@
       "filterBySectorLabel": "Filter by Sector (multi)",
       "sectorFiltersHint": "Applied before generation: only includes tickers from selected sectors. No selection = All of them (no filter).",
       "filterByIndustryLabel": "Filter by Industry",
-      "industryFiltersHint": "Add industry names separated by commas, e.g., Semiconductors, Software Infrastructure, Banks.",
+  "industryFiltersHint": "Select one or more industries using the checkboxes.",
       "topRankCount": "Stocks ranked per column (Top N)",
       "topRankCountHint": "Ranks top {{count}} per metric at CSV bottom.",
       "strictMode": "Strict Mode",
