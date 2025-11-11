@@ -141,6 +141,7 @@ const ControlPanel = (props, ref) => {
   // Novos metadados de CSV e caminho da última execução
   const [csvMeta, setCsvMeta] = useState({ source: null, filename: null, modified: null });
   const [lastRunCsvPath, setLastRunCsvPath] = useState(null);
+  const [csvDir, setCsvDir] = useState(null);
   const [sectorFieldId, setSectorFieldId] = useState(null);
   const [sectorOptions, setSectorOptions] = useState([]);
   // Lista estática de setores para pré-filtro (UI), começa com "All of them"
@@ -506,6 +507,7 @@ const ControlPanel = (props, ref) => {
         const defs = [
           { headerName: 'Composite_Geral_Ponderado', field: 'computedCompositeW', filter: 'agNumberColumnFilter', resizable: true, width: 190 },
           { headerName: 'Composite_Geral (Igual)', field: 'computedComposite', filter: 'agNumberColumnFilter', resizable: true, width: 170 },
+           { headerName: t('columns.nextEarnings'), field: 'nextEarningsDate', filter: 'agTextColumnFilter', resizable: true, width: 180 },
           ...idxs.map((i)=>cloneDef(i))
         ];
         groupDefs['Composites'] = addCommon(defs);
@@ -565,6 +567,18 @@ const ControlPanel = (props, ref) => {
                 return;
               }
               const data = await resp.json();
+              // Preencher próxima data de earnings com BMO/AMC
+              try {
+                const fmt = data?.calendar?.nextEarningsDateFmt;
+                const earningsTime = data?.calendar?.earningsTime;
+                if (fmt && earningsTime) {
+                  row.nextEarningsDate = `${fmt} (${earningsTime})`;
+                } else if (fmt) {
+                  row.nextEarningsDate = fmt;
+                } else {
+                  row.nextEarningsDate = '';
+                }
+              } catch {}
               const rec = data?.recommendations || {};
               const total = (rec.strongBuy||0) + (rec.buy||0) + (rec.hold||0) + (rec.sell||0) + (rec.strongSell||0);
               const t = data?.targets || {};
@@ -728,6 +742,7 @@ const ControlPanel = (props, ref) => {
         return false;
       }
       const data = await resp.json();
+      if (data?.baseDir) setCsvDir(data.baseDir);
       const ok = parseCsvAndSetGrid(data?.text || '');
       if (ok) setCsvMeta({ source: 'disco', filename: data?.filename || 'Comprehensive.csv', modified: data?.mtimeMs ? new Date(data.mtimeMs).toISOString() : null });
       return ok;
@@ -735,6 +750,16 @@ const ControlPanel = (props, ref) => {
       setLogs((l)=>[...l, `Erro ao ler CSV mais recente: ${err.message}`]);
       return false;
     }
+  };
+
+  // Helper: atualizar indicador do diretório atual de CSV
+  const refreshCsvDirIndicator = async () => {
+    try {
+      const resp = await fetch('/api/latest-csv');
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (data?.baseDir) setCsvDir(data.baseDir);
+    } catch {}
   };
 
   useEffect(() => {
@@ -750,6 +775,11 @@ const ControlPanel = (props, ref) => {
       logsRef.current.scrollTop = logsRef.current.scrollHeight;
     }
   }, [logs]);
+
+  // Atualizar indicador do diretório CSV ao montar
+  useEffect(() => {
+    (async () => { await refreshCsvDirIndicator(); })();
+  }, []);
 
   // Garantir que os setores selecionados existam nas opções atuais (filtro de exibição)
   useEffect(() => {
@@ -772,6 +802,121 @@ const ControlPanel = (props, ref) => {
       return selected.includes(val);
     });
   }, [gridRows, sectorFieldId, config?.sectorFilters]);
+
+  // Refresh Analysis: re-fetch Next Earnings, recommendations and targets (uses ?refresh=1)
+  const [refreshingAnalysis, setRefreshingAnalysis] = useState(false);
+  async function refreshAnalysisMissingEarnings() {
+    if (!gridRows || gridRows.length === 0) return;
+    try {
+      setRefreshingAnalysis(true);
+      const API_BASE = 'http://localhost:3002';
+      const updated = [...gridRows];
+      await Promise.all(updated.map(async (row) => {
+        try {
+          const tkRaw = String(row.c1 || '').trim();
+          const tk = tkRaw.replace(/^\*+/, '');
+          if (!tk) return;
+          const resp = await fetch(`${API_BASE}/api/analysis/${encodeURIComponent(tk)}?refresh=1`);
+          if (!resp.ok) return;
+          const data = await resp.json();
+          const fmt = data?.calendar?.nextEarningsDateFmt;
+          const earningsTime = data?.calendar?.earningsTime;
+          if (fmt && earningsTime) row.nextEarningsDate = `${fmt} (${earningsTime})`;
+          else if (fmt) row.nextEarningsDate = fmt;
+
+          // Update recommendations and targets
+          const rec = data?.recommendations || {};
+          const total = (rec.strongBuy||0) + (rec.buy||0) + (rec.hold||0) + (rec.sell||0) + (rec.strongSell||0);
+          const t = data?.targets || {};
+          const avg = Number(t.average);
+          const cur = Number(t.current);
+          const clamp01 = (x) => Math.max(0, Math.min(1, x));
+          let targetGapNorm = 0;
+          if (isFinite(avg) && isFinite(cur) && avg > 0) {
+            targetGapNorm = clamp01((avg - cur) / Math.max(avg, 1e-6));
+          }
+          if (total > 0) {
+            const sb = (rec.strongBuy||0) / total;
+            const b  = (rec.buy||0) / total;
+            const se = (rec.sell||0) / total;
+            const ss = (rec.strongSell||0) / total;
+            row.recStrongBuyPct = sb;
+            row.recBuyPct = b;
+            row.recStrongPlusBuyPct = sb + b;
+            row.recSellPct = se;
+            row.recStrongSellPct = ss;
+            row.recStrongPlusSellPct = se + ss;
+            row.recTargetGapNormPct = targetGapNorm;
+
+            const safeNum = (x) => (isFinite(Number(x)) ? Number(x) : 0);
+            const trailingEPS = safeNum(data?.eps?.trailingEPS);
+            const forwardEPS  = safeNum(data?.eps?.forwardEPS);
+            const eps_quality = clamp01((trailingEPS > 0 ? 0.5 : 0) + (forwardEPS > trailingEPS ? 0.5 : 0));
+
+            const trendArr = Array.isArray(data?.recommendationTrend) ? data.recommendationTrend : [];
+            let trendScore = 0;
+            if (trendArr.length >= 2) {
+              const recent = trendArr[0];
+              const older  = trendArr[Math.min(trendArr.length - 1, 3)];
+              const recentPos = safeNum(recent?.strongBuy) + safeNum(recent?.buy);
+              const olderPos  = safeNum(older?.strongBuy) + safeNum(older?.buy);
+              trendScore = clamp01((recentPos - olderPos) / Math.max(1, olderPos));
+            }
+
+            const rec_raw = Math.max(0, Math.min(1, 0.5 + 0.5 * ((sb + 0.5*b) - (ss + 0.5*se + 0.25 * ((rec.hold||0) / total)))));
+
+            const n = total;
+            const K = 20;
+            const w_cov = clamp01(n / (n + K));
+
+            const mc = safeNum(data?.metrics?.marketCap);
+            const capMin = 5e8, capMax = 5e11;
+            const w_mc = clamp01((Math.log10(Math.max(1, mc)) - Math.log10(capMin)) / (Math.log10(capMax) - Math.log10(capMin)));
+
+            const sbCount = (rec.strongBuy || 0);
+            const bCount  = (rec.buy || 0);
+            const sellCount = (rec.sell || 0);
+            const denomSB = sbCount + bCount;
+            const capMinThresh = 9e8;
+            const capMaxLinear = 5e11;
+            let recStrongBuyShareWeighted = 0;
+            if (mc >= capMinThresh && sellCount > 0 && denomSB > 0) {
+              const rawShare = sbCount / denomSB;
+              const mcWeightLinear = clamp01((mc - capMinThresh) / (capMaxLinear - capMinThresh));
+              recStrongBuyShareWeighted = clamp01(rawShare * mcWeightLinear);
+            }
+            row.recStrongBuyShareWeighted = recStrongBuyShareWeighted;
+
+            const rec_adj = rec_raw * w_cov * w_mc;
+            const score = Math.max(0, Math.min(1, 0.55 * rec_adj + 0.20 * eps_quality + 0.15 * trendScore + 0.10 * targetGapNorm));
+            row.computedRecommendationsScore = score;
+
+            row.recRaw = rec_raw;
+            row.recAdj = rec_adj;
+            row.recCovWeight = w_cov;
+            row.recMcWeight = w_mc;
+            row.recEpsQuality = eps_quality;
+            row.recTrendScore = trendScore;
+            row.recStrongBuyRaw = rec.strongBuy || 0;
+            row.recBuyRaw = rec.buy || 0;
+          } else {
+            row.recTargetGapNormPct = targetGapNorm;
+          }
+        } catch {}
+      }));
+      setGridRows(updated);
+      try {
+        const apiRec = gridApisByGroup.current?.['Recommendations'] || gridApiRef.current;
+        apiRec?.refreshCells({ force: true });
+        apiRec?.sizeColumnsToFit();
+        const apiComp = gridApisByGroup.current?.['Composites'] || gridApiRef.current;
+        apiComp?.refreshCells({ force: true });
+        apiComp?.sizeColumnsToFit();
+      } catch {}
+    } finally {
+      setRefreshingAnalysis(false);
+    }
+  }
 
   // Recalcular TOP N conforme sub-aba ativa e colunas visíveis (corrige tops em branco)
   useEffect(() => {
@@ -920,6 +1065,8 @@ const ControlPanel = (props, ref) => {
         const ok = await loadLatestRunCsv();
         if (ok) {
           setLogs((l)=>[...l, 'CSV carregado. Exibindo Resultado.']);
+          await refreshCsvDirIndicator();
+          if (csvDir) setLogs((l)=>[...l, `Diretório CSV atual: ${csvDir}`]);
           setActiveTab('resultado');
         }
       })();
@@ -1360,6 +1507,12 @@ const ControlPanel = (props, ref) => {
                 onClick={async ()=>{ await loadMostRecentCsvFromDisk(); }}
                >{t('controlPanel.result.loadMostRecentFromDisk')}</button>
 
+              <button
+                className="chrome-pill-btn text-sm disabled:opacity-50"
+                onClick={refreshAnalysisMissingEarnings}
+                disabled={refreshingAnalysis || !gridRows?.length}
+              >{t('controlPanel.result.refreshAnalysis')}</button>
+
               <label className="chrome-pill-btn text-sm">
                 <input type="file" accept=".csv,text/csv" className="hidden" onChange={async (e)=>{
                   const file = e.target.files?.[0];
@@ -1404,6 +1557,9 @@ const ControlPanel = (props, ref) => {
               ) : (
                 <span>—</span>
               )}
+              {csvDir ? (
+                <div className="mt-1 text-[11px] text-gray-500">Diretório CSV: {csvDir}</div>
+              ) : null}
             </div>
             {/* Sub-abas para grupos */}
             <div className="relative flex items-center justify-start mb-2">

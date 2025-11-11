@@ -159,11 +159,15 @@
   },
   "dataView": {
     "tabs": { "graphs": "Gráficos", "analysis": "Análisis" },
+    "graphs": {
+      "refresh": "Actualizar"
+    },
     "analysis": {
       "epsTitle": "Ganancias por Acción",
       "revenueVsEarningsTitle": "Ingresos vs. Ganancias",
       "analystRecommendationsTitle": "Recomendaciones de Analistas",
       "priceTargetsTitle": "Precios Objetivo de Analistas",
+      "refresh": "Actualizar",
       "low": "Bajo",
       "high": "Alto",
       "average": "Promedio",
@@ -190,6 +194,9 @@
     "close": "Cierre",
     "volume": "Volumen"
   },
+  "columns": {
+    "nextEarnings": "Próximos Resultados"
+  },
   "aero": {
     "title": "Análisis y Clasificaciones de Acciones",
     "subtitle": "Interfaz limpia y amigable para configurar y iniciar tu análisis.",
@@ -215,6 +222,12 @@
     "generationProgress": "Progreso de Generación",
     "stepsQueriesResults": "Pasos, Consultas y Resultados",
     "resultCsv": "Resultado (CSV)",
+    "result": {
+      "refreshAnalysis": "Actualizar Análisis",
+      "loadLastRun": "Cargar CSV de la última ejecución",
+      "loadMostRecentFromDisk": "Cargar CSV más reciente del disco",
+      "csvSourceLabel": "Fuente del CSV"
+    },
     "dataViewGroupTitle": "Vista de Datos",
     "importLocalCsv": "Importar CSV local",
     "quickFilterPlaceholder": "Filtro rápido (todas las subpestañas)",

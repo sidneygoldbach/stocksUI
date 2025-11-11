@@ -12,6 +12,7 @@ Este projeto usa React + Vite no frontend e um servidor Node/Express para APIs e
   - `SERVE_DIST` — quando `true`, o servidor monta `dist` em produção.
   - `NODE_ENV` — defina `production` em produção (impacta alguns padrões como `strict`).
   - `PORT` — porta do servidor.
+  - `CSV_DIR` — subdiretório para os arquivos CSV (padrão: `csv`).
 
 Veja `/.env.example` para um modelo; copie para `.env.development` e `.env.production` conforme o ambiente. Arquivos `.env*` estão ignorados pelo Git.
 
@@ -31,6 +32,7 @@ export VITE_BASE_PATH=/stocksUI/
 export SERVE_DIST=true
 export NODE_ENV=production
 export PORT=3001
+export CSV_DIR=csv
 ```
 
 2) Build do frontend:
@@ -75,6 +77,7 @@ location /api/ {
 - 404 de assets: verifique se `VITE_BASE_PATH` combina com a rota servida.
 - `Unexpected token '<'` ao fazer `resp.json()`: geralmente resposta HTML (404/fallback). Confirme que `/api` está sendo servido/proxyado pelo Node.
 - Verifique que `dist` foi gerado e o processo Node roda no diretório do projeto (o servidor usa `process.cwd()`).
+- CSVs: o backend salva e lê todos os `Comprehensive_*.csv` a partir de `CSV_DIR`. Ao iniciar, o servidor migra automaticamente quaisquer CSVs existentes na raiz do projeto para esse subdiretório.
 
 ## Notas
 

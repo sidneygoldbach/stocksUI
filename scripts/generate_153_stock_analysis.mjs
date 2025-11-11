@@ -1,5 +1,6 @@
 import yf from 'yahoo-finance2';
 import fs from 'fs';
+import path from 'path';
 
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 const baseTickers = [];
@@ -49,6 +50,12 @@ const getArgBoolStrict = (name, def) => {
   }
   return true;
 };
+const getArgString = (name, def) => {
+  const entry = args.find(s => s.startsWith(name + '='));
+  if (!entry) return def;
+  const v = entry.split('=')[1];
+  return v || def;
+};
 const cacheTtlHours = getArgNum('--cache-ttl-hours', 24);
 const jitterMinMs = getArgNum('--jitter-min', 300);
 const jitterMaxMs = getArgNum('--jitter-max', 450);
@@ -64,7 +71,14 @@ const minFields = getArgNum('--min-fields', 0);
 const noFallback = getArgBoolStrict('--no-fallback', false);
 const maxScreenerPages = getArgNum('--max-screener-pages', 3);
 // New flags for UI integration
-const outCsvPath = (() => { const entry = args.find(s => s.startsWith('--out-csv=')); return entry ? entry.split('=')[1] : `./Comprehensive_${targetCount}_Stock_Analysis.csv`; })();
+const csvDirArg = getArgString('--csv-dir', '.');
+const csvDirPath = path.resolve(process.cwd(), csvDirArg);
+const outCsvPath = (() => {
+  const entry = args.find(s => s.startsWith('--out-csv='));
+  if (entry) return entry.split('=')[1];
+  const defName = `Comprehensive_${targetCount}_Stock_Analysis.csv`;
+  return path.resolve(csvDirPath, defName);
+})();
 const manualTickersArg = (() => { const entry = args.find(s => s.startsWith('--manual-tickers=')); return entry ? entry.split('=')[1] : ''; })();
 const manualTickers = manualTickersArg ? manualTickersArg.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean).slice(0,50) : [];
 // New: allow skipping problematic tickers
@@ -522,9 +536,9 @@ async function getNasdaqCandidates() {
   await sleepJitter();
   // Fallback: harvest existing CSV tickers if present
   try {
-    const path = './Comprehensive_153_Stock_Analysis.csv';
-    if (!noFallback && fs.existsSync(path)) {
-      const data = fs.readFileSync(path, 'utf8');
+    const path153 = path.resolve(csvDirPath, 'Comprehensive_153_Stock_Analysis.csv');
+    if (!noFallback && fs.existsSync(path153)) {
+      const data = fs.readFileSync(path153, 'utf8');
       const lines = data.split(/\r?\n/).slice(1); // skip header
       for (const line of lines) {
         if (!line || line.startsWith('Top10_')) break;
@@ -535,7 +549,7 @@ async function getNasdaqCandidates() {
     }
   } catch (e) { logWarn('fallback csv read error', e?.message || e); }
   try {
-    const path2 = `./Comprehensive_${targetCount}_Stock_Analysis.csv`;
+    const path2 = path.resolve(csvDirPath, `Comprehensive_${targetCount}_Stock_Analysis.csv`);
     if (!noFallback && fs.existsSync(path2)) {
       const data2 = fs.readFileSync(path2, 'utf8');
       const lines2 = data2.split(/\r?\n/).slice(1);

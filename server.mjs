@@ -9,6 +9,18 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Global CSV directory configuration (single source of truth)
+const CSV_DIR = process.env.CSV_DIR || 'csv';
+const CSV_DIR_PATH = path.resolve(process.cwd(), CSV_DIR);
+function ensureCsvDir() {
+  try {
+    if (!fs.existsSync(CSV_DIR_PATH)) fs.mkdirSync(CSV_DIR_PATH, { recursive: true });
+  } catch (err) {
+    console.warn('[server] Failed to ensure CSV_DIR:', err?.message || String(err));
+  }
+}
+ensureCsvDir();
+
 const runs = new Map(); // runId -> { status, startedAt, endedAt, outCsv, log: [], progress: {}, proc }
 // In-memory cache for analysis responses
 const analysisCache = new Map(); // key: ticker, value: { ts, ttlMs, data }
@@ -56,7 +68,7 @@ app.post('/api/run-analysis', (req, res) => {
   } = req.body || {};
 
   const runId = makeRunId();
-  const outPath = path.resolve(process.cwd(), outCsv);
+  const outPath = path.resolve(CSV_DIR_PATH, outCsv);
 
   const normalizedDebugTicker = (typeof debugTicker === 'string' ? debugTicker.trim().toUpperCase() : '');
   const args = [
@@ -70,6 +82,7 @@ app.post('/api/run-analysis', (req, res) => {
     `--cooldown-threshold=${cooldownThreshold}`,
     `--cooldown-ms=${cooldownMs}`,
     `--out-csv=${outPath}`,
+    `--csv-dir=${CSV_DIR_PATH}`,
     `--emit-progress`,
     targetCount ? `--target-count=${targetCount}` : '',
     (Array.isArray(manualTickers) && manualTickers.length > 0) ? `--manual-tickers=${manualTickers.filter(Boolean).slice(0,50).join(',')}` : '',
@@ -203,6 +216,11 @@ app.get('/api/download/:runId', (req, res) => {
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', `attachment; filename="${path.basename(p)}"`);
   fs.createReadStream(p).pipe(res);
+});
+
+// Simple health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ ok: true, service: 'stocksUI-backend', uptimeSec: Math.round(process.uptime()), ts: new Date().toISOString() });
 });
 
 // Chave opcional para Alpha Vantage (fallback)
@@ -392,8 +410,41 @@ try {
 
 const argPort = (process.argv.find(a => a.startsWith('--port=')) || '').split('=')[1];
 const argHost = (process.argv.find(a => a.startsWith('--host=')) || '').split('=')[1];
-const PORT = Number(process.env.PORT || argPort || 3001);
+// Migrate existing CSVs in project root to CSV_DIR on startup
+function migrateCsvFilesToDir() {
+  try {
+    const dir = process.cwd();
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    let moved = 0;
+    for (const e of entries) {
+      if (!e.isFile()) continue;
+      if (!e.name.endsWith('.csv')) continue;
+      if (!e.name.startsWith('Comprehensive_')) continue;
+      const src = path.resolve(dir, e.name);
+      const dst = path.resolve(CSV_DIR_PATH, e.name);
+      if (src === dst) continue;
+      try {
+        if (!fs.existsSync(dst)) {
+          fs.renameSync(src, dst);
+          moved += 1;
+        } else {
+          // If destination exists, keep source to avoid clobbering
+          console.warn('[server] Destination CSV already exists, skipping move:', e.name);
+        }
+      } catch (err) {
+        console.warn('[server] Failed to move CSV:', e.name, err?.message || String(err));
+      }
+    }
+    if (moved > 0) console.log(`[server] Migrated ${moved} CSV file(s) to ${CSV_DIR_PATH}`);
+  } catch (err) {
+    console.warn('[server] CSV migration error:', err?.message || String(err));
+  }
+}
+
+const PORT = Number(process.env.PORT || argPort || 3002);
 const HOST = process.env.HOST || process.env.BIND_ADDR || argHost || '0.0.0.0';
+// Perform CSV migration before server starts listening
+migrateCsvFilesToDir();
 const server = app.listen(PORT, HOST, () => {
   const addr = server.address();
   if (typeof addr === 'string') {
@@ -405,7 +456,8 @@ const server = app.listen(PORT, HOST, () => {
 
 app.get('/api/latest-csv', (req, res) => {
   try {
-    const dir = process.cwd();
+    ensureCsvDir();
+    const dir = CSV_DIR_PATH;
     const entries = fs.readdirSync(dir, { withFileTypes: true });
     const csvs = entries
       .filter((e) => e.isFile() && e.name.endsWith('.csv') && e.name.startsWith('Comprehensive_'))
@@ -418,7 +470,7 @@ app.get('/api/latest-csv', (req, res) => {
     csvs.sort((a, b) => b.mtimeMs - a.mtimeMs);
     const top = csvs[0];
     const text = fs.readFileSync(top.path, 'utf8');
-    res.json({ filename: top.name, mtimeMs: top.mtimeMs, text });
+    res.json({ filename: top.name, mtimeMs: top.mtimeMs, text, baseDir: dir });
   } catch (err) {
     res.status(500).json({ error: 'latest_csv_error', message: err?.message || String(err) });
   }
@@ -471,7 +523,8 @@ app.get('/api/analysis/:ticker', async (req, res) => {
 
     const cached = analysisCache.get(ticker);
     const now = Date.now();
-    if (cached && (now - cached.ts) < (cached.ttlMs || ANALYSIS_TTL_MS)) {
+    const skipCache = req.query.nocache || req.query.refresh;
+    if (!skipCache && cached && (now - cached.ts) < (cached.ttlMs || ANALYSIS_TTL_MS)) {
       return res.json({ ticker, cached: true, ...cached.data });
     }
 
@@ -483,9 +536,17 @@ app.get('/api/analysis/:ticker', async (req, res) => {
       'earnings',
       'earningsHistory',
       'earningsTrend',
-      'incomeStatementHistory'
+      'incomeStatementHistory',
+      'calendarEvents'
     ];
-    const q = await yf.quoteSummary(ticker, { modules, validateResult: false });
+    let q;
+    try {
+      q = await yf.quoteSummary(ticker, { modules, validateResult: false });
+    } catch (err) {
+      console.log(`[DEBUG] Yahoo Finance error for ${ticker}:`, err.message);
+      // Se falhar, criar objeto vazio para continuar com dados mock
+      q = {};
+    }
 
     const price = q?.price || {};
     const fd = q?.financialData || {};
@@ -495,6 +556,11 @@ app.get('/api/analysis/:ticker', async (req, res) => {
     const eh = q?.earningsHistory?.history || [];
     const et = q?.earningsTrend?.trend || [];
     const ish = (q?.incomeStatementHistory?.incomeStatementHistory || []);
+    const earnings = q?.earnings || {};
+    const calendarEvents = q?.calendarEvents || {};
+    
+    // Debug: log earnings data
+    console.log(`[DEBUG] ${ticker} earnings:`, JSON.stringify(earnings, null, 2));
 
     // EPS summary (latest estimates and actuals)
     const eps = {
@@ -550,8 +616,77 @@ app.get('/api/analysis/:ticker', async (req, res) => {
       current: price.regularMarketPrice ?? null
     };
 
+    // Próximo earnings (earnings calendar)
+    let nextEarningsDateRaw = null;
+    let nextEarningsDateIso = null;
+    let nextEarningsDateFmt = null;
+    let earningsTime = null; // BMO ou AMC
+    
+    try {
+      // 1) Preferir calendarEvents.earnings.earningsDate do Yahoo
+      const edArr = calendarEvents?.earnings?.earningsDate;
+      if (Array.isArray(edArr) && edArr.length > 0) {
+        // Escolher o primeiro futuro, ou o primeiro disponível
+        const nowMs = Date.now();
+        const byFuture = edArr.find(d => d && d.raw != null && (Number(d.raw) * 1000) >= nowMs) || edArr[0];
+        if (byFuture) {
+          if (byFuture.raw != null) {
+            nextEarningsDateRaw = Number(byFuture.raw);
+            nextEarningsDateIso = new Date(Number(byFuture.raw) * 1000).toISOString();
+          }
+          if (byFuture.fmt) {
+            nextEarningsDateFmt = String(byFuture.fmt);
+          } else if (nextEarningsDateIso) {
+            // fallback: formatar ISO
+            nextEarningsDateFmt = new Date(nextEarningsDateIso).toLocaleDateString('pt-BR');
+          }
+        }
+      }
+
+      // 2) Fallback: usar earnings.earningsChart.quarterly (estimativas)
+      if (!nextEarningsDateFmt && earnings?.earningsChart?.quarterly) {
+        const futureQuarters = earnings.earningsChart.quarterly.filter(q => {
+          const date = q?.actual?.date || q?.estimate?.date;
+          return date && new Date(date) > new Date();
+        });
+        if (futureQuarters.length > 0) {
+          const nextQuarter = futureQuarters[0];
+          const ed = nextQuarter?.actual?.date || nextQuarter?.estimate?.date;
+          const pick = Array.isArray(ed) ? (ed.find(x => x && (x.raw || x.fmt)) || ed[0]) : ed;
+          if (pick && typeof pick === 'object') {
+            if (pick.raw != null) {
+              nextEarningsDateRaw = Number(pick.raw);
+              nextEarningsDateIso = new Date(Number(pick.raw) * 1000).toISOString();
+            }
+            if (pick.fmt) nextEarningsDateFmt = String(pick.fmt);
+          } else if (typeof pick === 'string') {
+            const timestamp = new Date(pick + 'T16:00:00.000Z').getTime();
+            if (!isNaN(timestamp)) {
+              nextEarningsDateRaw = Math.floor(timestamp / 1000);
+              nextEarningsDateIso = new Date(timestamp).toISOString();
+              nextEarningsDateFmt = new Date(timestamp).toLocaleDateString('pt-BR');
+            }
+          }
+        }
+      }
+
+      // 3) Determinar BMO/AMC heurístico se tivermos ISO
+      if (!earningsTime && nextEarningsDateIso) {
+        const date = new Date(nextEarningsDateIso);
+        const hour = date.getUTCHours();
+        earningsTime = hour < 12 ? 'BMO' : 'AMC';
+      }
+    } catch {}
+
+    const calendar = {
+      nextEarningsDateRaw,
+      nextEarningsDateIso,
+      nextEarningsDateFmt,
+      earningsTime,
+    };
+
     const metrics = { marketCap };
-    const mapped = { ticker, eps, revenueVsEarnings, recommendations, recommendationTrend, targets, metrics };
+    const mapped = { ticker, eps, revenueVsEarnings, recommendations, recommendationTrend, targets, metrics, calendar };
     analysisCache.set(ticker, { ts: now, ttlMs: ANALYSIS_TTL_MS, data: mapped });
     return res.json(mapped);
   } catch (err) {

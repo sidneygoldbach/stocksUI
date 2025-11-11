@@ -186,11 +186,15 @@
   },
   "dataView": {
     "tabs": { "graphs": "Graphs", "analysis": "Analysis" },
+    "graphs": {
+      "refresh": "Refresh"
+    },
     "analysis": {
       "epsTitle": "Earnings Per Share",
       "revenueVsEarningsTitle": "Revenue vs. Earnings",
       "analystRecommendationsTitle": "Analyst Recommendations",
       "priceTargetsTitle": "Analyst Price Targets",
+      "refresh": "Refresh",
       "low": "Low",
       "high": "High",
       "average": "Average",
@@ -217,6 +221,9 @@
     "close": "Close",
     "volume": "Volume"
   },
+  "columns": {
+    "nextEarnings": "Next Earnings"
+  },
   "aero": {
     "title": "Analyses and Rankings of Shares",
     "subtitle": "Clean, friendly interface to configure and start your analysis.",
@@ -242,6 +249,12 @@
     "generationProgress": "Generation Progress",
     "stepsQueriesResults": "Steps, Queries and Results",
     "resultCsv": "Result (CSV)",
+    "result": {
+      "refreshAnalysis": "Refresh Analysis",
+      "loadLastRun": "Load CSV from last run",
+      "loadMostRecentFromDisk": "Load most recent CSV from disk",
+      "csvSourceLabel": "CSV Source"
+    },
     "dataViewGroupTitle": "Data View",
     "importLocalCsv": "Import local CSV",
     "quickFilterPlaceholder": "Quick filter (all sub-tabs)",

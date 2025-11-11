@@ -286,14 +286,14 @@ export default function DataView({ ticker }) {
   };
 
   // Analysis: fetch when tab active
-  async function fetchAnalysisData() {
+  async function fetchAnalysisData(forceRefresh = false) {
     if (!ticker) return;
     try {
       setAnalysisLoading(true);
       setAnalysisError('');
       // Force development API base - direct call to backend
       const API_BASE = 'http://localhost:3002';
-      const url = `${API_BASE}/api/analysis/${encodeURIComponent(ticker)}`;
+      const url = `${API_BASE}/api/analysis/${encodeURIComponent(ticker)}${forceRefresh ? '?refresh=1' : ''}`;
       const resp = await fetch(url);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const json = await resp.json();
@@ -360,6 +360,13 @@ export default function DataView({ ticker }) {
                   <option key={it} value={it}>{it}</option>
                 ))}
               </select>
+              <button
+                className="chrome-pill-btn text-xs"
+                disabled={!ticker || loading}
+                onClick={() => fetchChart()}
+              >
+                {t('dataView.graphs.refresh','Refresh')}
+              </button>
             </div>
           </div>
 
@@ -520,9 +527,18 @@ export default function DataView({ ticker }) {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
             <h3 style={{ margin: 0 }}>{title}</h3>
-            <div style={{ marginLeft: 'auto', color: '#666', fontSize: 12 }}>
-              {analysisLoading ? t('common.loading','Loading...') : null}
-              {analysisError ? `${t('common.error','Error')}: ${analysisError}` : null}
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: '6px', alignItems: 'center' }}>
+              <button
+                className="chrome-pill-btn text-xs"
+                disabled={!ticker || analysisLoading}
+                onClick={() => fetchAnalysisData(true)}
+              >
+                {t('dataView.analysis.refresh','Refresh')}
+              </button>
+              <span style={{ color: '#666', fontSize: 12 }}>
+                {analysisLoading ? t('common.loading','Loading...') : null}
+                {analysisError ? `${t('common.error','Error')}: ${analysisError}` : null}
+              </span>
             </div>
           </div>
           {!ticker && (

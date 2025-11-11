@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "gen:153": "node scripts/generate_153_stock_analysis.mjs",
     "server": "node server.mjs",
-    "dev:full": "concurrently -k \"npm:server\" \"vite\""
+    "dev:full": "concurrently -k \"npm:server\" \"vite\"",
+    "start:all": "npm run dev:full"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.1.14",
